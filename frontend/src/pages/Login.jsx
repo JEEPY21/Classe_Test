@@ -19,7 +19,14 @@ export default function Login() {
       await login(email.trim(), password.trim());
       navigate("/");
     } catch (err) {
-      setError(apiError(err));
+      const status = err.response?.status;
+      if (status === 401) {
+        setError("Email ou mot de passe incorrect");
+      } else if (!err.response || status >= 500) {
+        setError("Service momentanément indisponible. Veuillez réessayer dans quelques secondes.");
+      } else {
+        setError(apiError(err));
+      }
     } finally { setLoading(false); }
   };
 
