@@ -1,0 +1,36 @@
+{
+  "summary": "Full end-to-end validation of the demo-data toggle feature on the dashboard. Backend (7/7 pytest) and Playwright frontend flow all PASS. Verified: (1) POST /api/demo/seed creates 10 demo companies; dashboard KPI 'Total prospects' becomes 10, demo-notice bandeau appears with 'Elles sont incluses', toggle-demo-btn state is 'Démo affichée'; sector/status distributions populate. (2) Clicking toggle-demo-btn calls GET /api/dashboard?include_demo=false — KPI returns to 0, bandeau text switches to 'exclues des statistiques', button reads 'Afficher la démo'. Re-click sets it back to 10. (3) DELETE /api/demo/clear removes the 10 demo docs; dashboard reads total=0 and the demo-notice bandeau disappears entirely. (4) priority row 'Erreurs d'automatisation' (data-testid=priority-erreurs) reads 0 — previous stale test artefacts are gone. (5) With dashboard toggle OFF (excluding demo, KPI=0), navigating to /entreprises still shows all 10 demo companies — proving the toggle only filters dashboard statistics, not the companies list. Backend GET /api/dashboard correctly applies real={} vs {is_demo: {$ne: true}} across companies, emails, followups, replies, opportunities.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_dashboard_demo.py",
+    "/app/test_reports/pytest/dashboard_demo_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Dashboard.jsx: load() and toggleDemo() do not guard against overlapping in-flight requests. Rapid double-click on toggle-demo-btn could race and leave the UI state (includeDemo) inconsistent with the last response. Consider an in-flight flag or cancelling the previous request.",
+    "server.py dashboard(): 'erreurs_automatisation' does NOT filter by is_demo, which is by design (errors are real regardless of demo). Confirm this is intentional — currently it counts all unresolved errors including any that were logged against a demo company. Might warrant filtering when include_demo=false for consistency.",
+    "Dashboard.jsx line 35: initial load() is fired without awaiting seeding/clear state; safe here but a lightweight AbortController on axios would avoid setState-after-unmount warnings if the user navigates away mid-request.",
+    "server.py POST /api/demo/seed: not idempotent — calling it a second time creates another 10 companies (total 20). Consider either purging is_demo=true first or short-circuiting when demo_count>0. Currently the UI's flow (seed → clear) avoids this but a stray double-click could double the dataset."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_dashboard_demo.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (7/7 pytest)",
+    "frontend": "100% (all 5 review scenarios passed)"
+  },
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Seeded 10 demo companies via POST /api/demo/seed, then cleared via DELETE /api/demo/clear at end of run. DB left clean (0 real, 0 demo).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://prospectia-app-1.preview.emergentagent.com. Dashboard route: '/'. Key data-testids for the demo toggle feature: seed-demo-btn, clear-demo-btn, toggle-demo-btn, demo-notice, kpi-total, priority-erreurs, nav-companies, nav-dashboard. The dashboard KPI reflects the include_demo query param; the companies page always lists all. Backend endpoint: GET /api/dashboard?include_demo=true|false returns kpis + demo_count + priority.erreurs_automatisation.",
+  "rca of the issue": "Not applicable — feature works as designed. All review scenarios verified."
+}

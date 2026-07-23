@@ -869,9 +869,9 @@ async def update_settings(body: GenericIn, user: dict = Depends(get_current_user
 
 # ---------- Dashboard ----------
 @api.get("/dashboard")
-async def dashboard(user: dict = Depends(get_current_user)):
+async def dashboard(include_demo: bool = False, user: dict = Depends(get_current_user)):
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    real = {"is_demo": {"$ne": True}}
+    real = {} if include_demo else {"is_demo": {"$ne": True}}
     companies = await db.companies.find(real, {"_id": 0}).to_list(5000)
     total = len(companies)
     demo_count = await db.companies.count_documents({"is_demo": True})

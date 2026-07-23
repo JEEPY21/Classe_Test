@@ -30,17 +30,25 @@ function Kpi({ icon: Icon, label, value, accent = "text-slate-900", testid }) {
 export default function Dashboard() {
   const [data, setData] = useState(null);
   const [seeding, setSeeding] = useState(false);
+  const [includeDemo, setIncludeDemo] = useState(false);
 
-  const load = () => client.get("/dashboard").then((r) => setData(r.data)).catch((e) => toast.error(apiError(e)));
+  const load = (inc = includeDemo) => client.get("/dashboard", { params: { include_demo: inc } }).then((r) => setData(r.data)).catch((e) => toast.error(apiError(e)));
   useEffect(() => { load(); }, []);
+
+  const toggleDemo = () => { const v = !includeDemo; setIncludeDemo(v); load(v); };
 
   const seed = async () => {
     setSeeding(true);
-    try { await client.post("/demo/seed"); toast.success("Données de démonstration créées"); load(); }
+    try {
+      await client.post("/demo/seed");
+      toast.success("Données de démonstration créées — affichées sur le tableau de bord");
+      setIncludeDemo(true);
+      load(true);
+    }
     catch (e) { toast.error(apiError(e)); } finally { setSeeding(false); }
   };
   const clearDemo = async () => {
-    try { await client.delete("/demo/clear"); toast.success("Données de démonstration supprimées"); load(); }
+    try { await client.delete("/demo/clear"); toast.success("Données de démonstration supprimées"); setIncludeDemo(false); load(false); }
     catch (e) { toast.error(apiError(e)); }
   };
 
@@ -67,8 +75,16 @@ export default function Dashboard() {
       </PageHeader>
 
       {data.demo_count > 0 && (
-        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 mb-5" data-testid="demo-notice">
-          <Database className="w-3.5 h-3.5" /> {data.demo_count} entreprise(s) de démonstration présente(s) — <b>exclues des statistiques ci-dessous</b>. Elles servent uniquement à tester l'interface.
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs bg-slate-100 border border-slate-200 rounded-lg px-3 py-2.5 mb-5" data-testid="demo-notice">
+          <span className="flex items-center gap-2 text-slate-500">
+            <Database className="w-3.5 h-3.5" /> {data.demo_count} entreprise(s) de démonstration présente(s).
+            {includeDemo ? " Elles sont incluses dans les statistiques ci-dessous." : " Elles sont exclues des statistiques ci-dessous."}
+          </span>
+          <button onClick={toggleDemo} data-testid="toggle-demo-btn"
+            className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full font-medium transition-colors ${includeDemo ? "bg-blue-600 text-white" : "bg-white border border-slate-300 text-slate-600 hover:bg-slate-50"}`}>
+            <span className={`w-2 h-2 rounded-full ${includeDemo ? "bg-white" : "bg-slate-400"}`} />
+            {includeDemo ? "Démo affichée" : "Afficher la démo"}
+          </button>
         </div>
       )}
 
