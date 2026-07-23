@@ -32,12 +32,12 @@ export default function Layout({ children }) {
   const SidebarContent = () => (
     <>
       <div className="px-6 py-5 border-b border-slate-800">
-        <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center">
+        <div className="flex items-center gap-2.5 select-none cursor-default" data-testid="brand-logo">
+          <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0">
             <ScanSearch className="w-5 h-5 text-white" />
           </div>
-          <div>
-            <div className="font-heading font-extrabold text-white text-lg leading-none tracking-tight">PROSPECTIA</div>
+          <div className="leading-none">
+            <div className="font-heading font-extrabold text-white text-lg tracking-tight">PROSPECTIA</div>
             <div className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mt-1">Agent IA commercial</div>
           </div>
         </div>

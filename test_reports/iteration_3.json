@@ -1,0 +1,41 @@
+{
+  "summary": "Iteration 3 — Full backend + UI validation of the CSV/XLSX import flow (blocking bug #1) and brand-logo fix. Backend: 9/9 pytest tests pass in /app/backend/tests/test_import.py covering: (1) semicolon CSV with accents/UTF-8 auto-detects encoding=utf-8, separator=point-virgule, 5 data rows, auto-maps Société→name, Secteur→sector, Ville→city, Code Postal→postal_code, Site Web→website, Email→generic_email, Téléphone→phone, Contact→contact_full_name, Fonction→contact_role, and returns internal_duplicates=1, valid_rows=4, warning_count=1; (2) confirm with strategy=ignore creates 3 companies + 3 linked contacts, ignores 1 duplicate, rejects 1 empty-name row; (3) comma CSV with English headers auto-maps and creates 2 companies; (4) empty file returns HTTP 400 with 'Le fichier est vide.'; (5) confirm without name mapping returns HTTP 400 with 'Nom entreprise'; (6) XLSX file is detected (ext=xlsx), auto-maps, and imports 2 companies. UI (Playwright, real REACT_APP_BACKEND_URL): login → sidebar brand-logo has NO input, class contains 'select-none cursor-default', renders 'PROSPECTIA / AGENT IA COMMERCIAL'; nav to /entreprises; open import dialog; upload semicolon CSV with accents → preview loads with separator='point-virgule', 5 preview rows, auto-mapping filled (name=Société, generic_email=Email, contact_full_name=Contact, contact_role=Fonction); setting map-name to empty disables confirm-import-btn AND shows amber warning banner; restoring mapping and clicking confirm-import-btn shows import-report with counts 3 créées / 3 contacts / 1 doublon ignoré / 1 rejeté / 5 lignes; download-rejected-btn present (rejected>0); after close-report-btn the 3 TEST_UI_ companies appear in the Entreprises list with status 'Importé' and accents preserved (Boulangerie Léa, Café Über, Épicerie Noël); uploading an empty file shows toast 'Le fichier est vide.' and stays on select step (no crash). Test data (3 companies) has been cleaned up.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/import/preview", "issue": "Auto-mapping synonyms dictionary in import_service.py does not include the target field names as their own synonyms (e.g. English header 'sector' is not recognised because 'sector' is not in COMPANY_SYNONYMS['sector'] which only lists 'secteur, activite, industry, ...'). Same for 'name', 'city', 'website', 'email', 'phone'. English headers still work because their common variants (company, industry, city, website, email) happen to be listed, but this is fragile. Recommend adding the target key itself to each synonym list."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "ImportDialog", "issues": ["Radix DialogContent emits a console warning 'Missing Description or aria-describedby={undefined} for {DialogContent}' — accessibility only, non-blocking. Add a <DialogDescription> or aria-describedby to silence it."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_import.py",
+    "/app/test_reports/pytest/import_results.xml"
+  ],
+  "action_items": [
+    "(Optional, minor) Add each target field key ('name','sector','city','website','email','phone', etc.) to its own synonym list in /app/backend/import_service.py so English/direct headers are always recognised.",
+    "(Optional, minor) Add DialogDescription/aria-describedby to /app/frontend/src/components/ImportDialog.jsx DialogContent to fix Radix a11y console warning."
+  ],
+  "critical_code_review_comments": [
+    "import_service.parse_file correctly detects utf-8-sig/utf-8/cp1252/latin-1 in that priority order and uses csv.Sniffer with fallback heuristic on ',;\\t|' — robust.",
+    "server.py /api/import/confirm uses a case-insensitive regex to match existing company names — good for dedup, but the regex is built with re.escape(r['name']) and could still miss whitespace-different duplicates; consider normalising via norm_header() for both sides.",
+    "import_service.norm_header is used to normalise for internal_duplicates and db_duplicates but the DB dup check in /import/preview uses norm_header while /import/confirm uses raw case-insensitive regex — inconsistency between preview counter and confirm behaviour. Preview may report db_duplicates=N but confirm's dedup uses a different key.",
+    "ImportDialog.jsx correctly disables confirm-import-btn when mapping.name is falsy and shows an inline amber warning — good UX.",
+    "Layout.jsx brand-logo now uses 'select-none cursor-default' and is a plain <div>, resolving the reported 'looks like an input' issue."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_import.py (new — 9 pytest tests for the import flow)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "100% (all requested UI scenarios pass)"},
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "During UI test 3 TEST_UI_ companies + 3 contacts were created and then deleted programmatically after tests. Backend pytest also creates TEST_ companies and cleans them up via test_zzz_cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Import flow fully validated end-to-end: /api/import/preview (multipart file), /api/import/confirm (JSON with import_id, mapping, duplicate_strategy in {ignore,update,create_anyway}). Preview response contains meta.encoding, meta.separator ('virgule'|'point-virgule'|'tabulation'|'pipe'), meta.n_rows, meta.n_cols, mapping (auto), headers, sample[0..4], valid_rows, internal_duplicates, db_duplicates, warning_count, import_id, field_labels, available_fields. Confirm response returns companies_created, companies_updated, contacts_created, duplicates_ignored, rejected, total_lines, rejected_rows, import_id. Frontend testids on ImportDialog: import-file-input, import-dropzone, map-<field>, dup-strategy, confirm-import-btn, import-report, download-rejected-btn, close-report-btn. Empty file returns HTTP 400 with body 'Le fichier est vide.' shown as sonner toast on the frontend. Brand-logo (Layout.jsx) is now a non-selectable div with data-testid=brand-logo containing PROSPECTIA + subtitle.",
+  "rca_of_the_issue": "The blocking import bug was caused by pandas.read_csv defaulting to comma separator, which collapsed French Excel-exported CSVs (semicolon-delimited) into a single column, producing 0 companies created and no clear error. The fix replaces pandas.read_csv with a custom parse_file in /app/backend/import_service.py that: (1) tries multiple encodings utf-8-sig/utf-8/cp1252/latin-1, (2) uses csv.Sniffer over the first 20 lines with delimiters ',;\\t|' plus a heuristic fallback counting occurrences on the first line, (3) reads with csv.reader using the detected delimiter, (4) returns explicit meta.encoding and meta.separator so the UI can display them. Combined with a new 2-step preview/confirm flow this guarantees the user sees exactly how the file is being interpreted before any DB write. Verified with semicolon-delimited UTF-8 CSVs containing French accents, English comma-delimited CSVs, XLSX files via openpyxl, and empty-file error path — all 9 pytest tests pass and the full UI journey succeeds against the public REACT_APP_BACKEND_URL."
+}

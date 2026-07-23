@@ -8,6 +8,7 @@ import uuid
 import logging
 import io
 import csv
+import re
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any
 
@@ -22,6 +23,7 @@ from pydantic import BaseModel, Field
 
 import ai_service
 import seed_data
+import import_service
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -298,41 +300,140 @@ async def bulk_status(body: GenericIn, user: dict = Depends(get_current_user)):
     await log_activity("Changement de statut en masse", "entreprise", detail=f"{len(ids)} entreprises → {status}", auto=False)
     return {"updated": len(ids)}
 
-@api.post("/companies/import-csv")
-async def import_csv(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+@api.post("/import/preview")
+async def import_preview(file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Étape 1 : détecte format/encodage/séparateur, propose un mappage, renvoie un aperçu."""
     content = await file.read()
+    if not content:
+        await log_error("Champ obligatoire manquant", "Fichier d'import vide")
+        raise HTTPException(400, "Le fichier est vide.")
     try:
-        df = pd.read_csv(io.BytesIO(content))
-    except Exception as e:
-        await log_error("Source inaccessible", f"CSV illisible: {e}")
-        raise HTTPException(400, "Fichier CSV invalide")
-    df = df.fillna("")
-    imported, duplicates = 0, 0
-    mapping = {"nom": "name", "name": "name", "entreprise": "name", "secteur": "sector", "sector": "sector",
-               "ville": "city", "city": "city", "code_postal": "postal_code", "cp": "postal_code",
-               "site": "website", "website": "website", "site_internet": "website",
-               "email": "generic_email", "telephone": "phone", "phone": "phone", "tel": "phone"}
-    for _, row in df.iterrows():
-        data = {}
-        for col in df.columns:
-            key = mapping.get(str(col).strip().lower())
-            if key:
-                data[key] = str(row[col]).strip()
-        if not data.get("name"):
+        rows, headers, meta = import_service.parse_file(content, file.filename)
+    except ValueError as e:
+        await log_error("Source inaccessible", f"Import illisible : {e}")
+        raise HTTPException(400, str(e))
+    if not rows:
+        raise HTTPException(400, "Aucune ligne de données valide détectée.")
+    mapping, unrecognized = import_service.auto_map(headers)
+    if "name" not in mapping:
+        # on renvoie quand même l'aperçu pour permettre un mappage manuel
+        pass
+    records, warnings = import_service.build_records(rows, mapping)
+    internal_dups = import_service.find_internal_duplicates(records)
+    # doublons avec la base
+    existing_names = set()
+    all_comp = await db.companies.find({}, {"_id": 0, "name": 1, "website": 1}).to_list(5000)
+    for c in all_comp:
+        existing_names.add(import_service.norm_header(c.get("name", "")))
+    db_dups = sum(1 for r in records if import_service.norm_header(r.get("name", "")) in existing_names)
+    contacts_detected = sum(1 for r in records if r.get("_contact"))
+
+    import_id = new_id()
+    await db.import_sessions.insert_one({
+        "id": import_id, "rows": rows, "headers": headers, "meta": meta,
+        "mapping": mapping, "created_at": now_iso(), "user": user.get("name")})
+    return {
+        "import_id": import_id, "meta": meta, "headers": headers,
+        "mapping": mapping, "field_labels": import_service.FIELD_LABELS,
+        "available_fields": list(import_service.FIELD_LABELS.keys()),
+        "unrecognized": unrecognized, "sample": rows[:5],
+        "valid_rows": len(records), "internal_duplicates": len(internal_dups),
+        "db_duplicates": db_dups, "contacts_detected": contacts_detected,
+        "warnings": warnings[:50], "warning_count": len(warnings),
+        "name_mapped": "name" in mapping,
+    }
+
+
+class ConfirmImportIn(BaseModel):
+    import_id: str
+    mapping: dict
+    duplicate_strategy: str = "ignore"  # ignore | update | create_anyway
+
+
+@api.post("/import/confirm")
+async def import_confirm(body: ConfirmImportIn, user: dict = Depends(get_current_user)):
+    """Étape 2 : crée réellement les entreprises et contacts selon le mappage validé."""
+    session = await db.import_sessions.find_one({"id": body.import_id}, {"_id": 0})
+    if not session:
+        raise HTTPException(404, "Session d'import expirée. Recommencez.")
+    mapping = {k: v for k, v in (body.mapping or {}).items() if v}
+    if "name" not in mapping:
+        raise HTTPException(400, "Le champ obligatoire « Nom entreprise » n'est mappé à aucune colonne.")
+    records, warnings = import_service.build_records(session["rows"], mapping)
+    internal_dups = set(import_service.find_internal_duplicates(records))
+
+    report = {"total_lines": session["meta"].get("n_rows", 0), "companies_created": 0,
+              "companies_updated": 0, "contacts_created": 0, "duplicates_ignored": 0,
+              "rejected": len(warnings), "warnings": len(warnings)}
+    rejected_rows = list(warnings)
+    seen_in_batch = set()
+
+    for r in records:
+        if r["_line"] in internal_dups:
+            report["duplicates_ignored"] += 1
             continue
-        existing = await db.companies.find_one({"name": data["name"]}, {"_id": 0})
-        if existing and detect_duplicate(existing, data):
-            duplicates += 1
-            continue
-        c = Company(**data).model_dump()
-        c["source"] = "Import CSV"
-        c["status"] = "À analyser"
-        c["created_at"] = now_iso()
-        c["updated_at"] = now_iso()
-        await db.companies.insert_one(c)
-        imported += 1
-    await log_activity("Import CSV", "entreprise", detail=f"{imported} importées, {duplicates} doublons ignorés")
-    return {"imported": imported, "duplicates": duplicates}
+        contact = r.pop("_contact", None)
+        r.pop("_line", None); r.pop("_warnings", None)
+        name_norm = import_service.norm_header(r.get("name", ""))
+        existing = await db.companies.find_one({"name": {"$regex": f"^{re.escape(r['name'])}$", "$options": "i"}}, {"_id": 0})
+        if existing:
+            if body.duplicate_strategy == "ignore":
+                report["duplicates_ignored"] += 1
+                continue
+            elif body.duplicate_strategy == "update":
+                upd = {k: v for k, v in r.items() if v and not existing.get(k)}  # fusion des champs manquants
+                if upd:
+                    upd["updated_at"] = now_iso()
+                    await db.companies.update_one({"id": existing["id"]}, {"$set": upd})
+                report["companies_updated"] += 1
+                target_id = existing["id"]
+            else:  # create_anyway
+                target_id = await _create_company(r)
+                report["companies_created"] += 1
+        else:
+            target_id = await _create_company(r)
+            report["companies_created"] += 1
+        if contact and target_id:
+            cdoc = {"id": new_id(), "company_id": target_id,
+                    "first_name": contact.get("first_name", ""), "last_name": contact.get("last_name", ""),
+                    "role": contact.get("role", ""), "email": contact.get("email", ""),
+                    "phone": contact.get("phone", ""), "linkedin": contact.get("linkedin", ""),
+                    "decision_level": contact.get("decision_level", "autre"),
+                    "department": contact.get("department", ""), "source": "Import",
+                    "email_verified": "non vérifié", "do_not_contact": False,
+                    "import_id": body.import_id, "created_at": now_iso()}
+            await db.contacts.insert_one(cdoc)
+            report["contacts_created"] += 1
+
+    await db.imports.insert_one({"id": body.import_id, "meta": session["meta"], "report": report,
+                                 "rejected_rows": rejected_rows, "user": user.get("name"),
+                                 "strategy": body.duplicate_strategy, "created_at": now_iso()})
+    await db.import_sessions.delete_one({"id": body.import_id})
+    await log_activity("Import terminé", "entreprise",
+                       detail=f"{report['companies_created']} créées, {report['companies_updated']} MAJ, "
+                              f"{report['contacts_created']} contacts, {report['duplicates_ignored']} doublons ignorés, "
+                              f"{report['rejected']} rejetées")
+    report["import_id"] = body.import_id
+    report["rejected_rows"] = rejected_rows
+    return report
+
+
+async def _create_company(r: dict) -> str:
+    r["id"] = new_id()
+    r["source"] = r.get("source") or "Import CSV"
+    r["status"] = "Importé"
+    r["created_at"] = now_iso()
+    r["updated_at"] = now_iso()
+    doc = Company(**{k: v for k, v in r.items() if k in Company.model_fields}).model_dump()
+    doc["status"] = "Importé"
+    doc["source"] = r["source"]
+    await db.companies.insert_one(doc)
+    return doc["id"]
+
+
+@api.get("/imports")
+async def list_imports(user: dict = Depends(get_current_user)):
+    return await db.imports.find({}, {"_id": 0, "rejected_rows": 0}).sort("created_at", -1).to_list(100)
 
 @api.get("/companies-export/csv")
 async def export_csv(user: dict = Depends(get_current_user)):

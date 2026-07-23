@@ -5,6 +5,7 @@ import { PageHeader, Card, Btn, Loading, Empty, Input, Select, Textarea, ScoreBa
 import StatusBadge, { ALL_STATUSES } from "@/components/StatusBadge";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import ImportDialog from "@/components/ImportDialog";
 import { Plus, Search, Upload, Download, Trash2, Eye } from "lucide-react";
 
 const SECTORS = ["Conseil", "Cabinet juridique", "Cabinet comptable", "Cabinet administratif",
@@ -19,8 +20,8 @@ export default function Companies() {
   const [selected, setSelected] = useState([]);
   const [bulkStatus, setBulkStatus] = useState("Qualifié");
   const [showAdd, setShowAdd] = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [form, setForm] = useState({ name: "", sector: "Conseil", city: "", postal_code: "", website: "", generic_email: "", phone: "" });
-  const fileRef = useRef();
 
   const load = () => {
     const params = {};
@@ -43,18 +44,7 @@ export default function Companies() {
     } catch (e) { toast.error(apiError(e)); }
   };
 
-  const importCsv = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    try {
-      const { data } = await client.post("/companies/import-csv", fd);
-      toast.success(`${data.imported} importées, ${data.duplicates} doublons ignorés`);
-      load();
-    } catch (err) { toast.error(apiError(err)); }
-    e.target.value = "";
-  };
+  const importCsv = () => setShowImport(true);
 
   const exportCsv = async () => {
     const { data } = await client.get("/companies-export/csv", { responseType: "blob" });
@@ -82,8 +72,7 @@ export default function Companies() {
   return (
     <div>
       <PageHeader title="Entreprises" subtitle={`${rows.length} entreprise(s) dans votre base de prospects`}>
-        <input ref={fileRef} type="file" accept=".csv" hidden onChange={importCsv} />
-        <Btn variant="secondary" onClick={() => fileRef.current.click()} data-testid="import-csv-btn"><Upload className="w-4 h-4" /> Importer CSV</Btn>
+        <Btn variant="secondary" onClick={importCsv} data-testid="import-csv-btn"><Upload className="w-4 h-4" /> Importer</Btn>
         <Btn variant="secondary" onClick={exportCsv} data-testid="export-csv-btn"><Download className="w-4 h-4" /> Exporter</Btn>
         <Btn variant="blue" onClick={() => setShowAdd(true)} data-testid="add-company-btn"><Plus className="w-4 h-4" /> Ajouter</Btn>
       </PageHeader>
@@ -153,6 +142,8 @@ export default function Companies() {
           </div>
         )}
       </Card>
+
+      <ImportDialog open={showImport} onOpenChange={setShowImport} onDone={load} />
 
       <Dialog open={showAdd} onOpenChange={setShowAdd}>
         <DialogContent className="max-w-lg">
