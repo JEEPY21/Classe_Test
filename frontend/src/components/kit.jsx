@@ -53,7 +53,10 @@ export function Textarea(props) {
 }
 
 export function ScoreBadge({ score }) {
-  const s = score || 0;
+  if (score === null || score === undefined) {
+    return <span className="inline-flex items-center px-2 py-0.5 rounded-md text-xs font-medium bg-slate-100 text-slate-400">Non calculé</span>;
+  }
+  const s = score;
   const color = s >= 80 ? "bg-emerald-100 text-emerald-700" : s >= 65 ? "bg-blue-100 text-blue-700" : s >= 50 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500";
   return <span className={`inline-flex items-center justify-center min-w-[2.5rem] px-2 py-0.5 rounded-md text-xs font-semibold ${color}`}>{s}</span>;
 }

@@ -118,7 +118,7 @@ class Company(BaseModel):
     status: Optional[str] = "Nouveau"
     tags: List[str] = []
     notes: Optional[str] = ""
-    score: Optional[int] = 0
+    score: Optional[int] = None
     analysis: Optional[Any] = None
     score_detail: Optional[Any] = None
     is_demo: bool = False
@@ -277,7 +277,7 @@ async def update_company(cid: str, company: Company, user: dict = Depends(get_cu
     doc["created_at"] = old.get("created_at", now_iso())
     doc["analysis"] = doc.get("analysis") or old.get("analysis")
     doc["score_detail"] = doc.get("score_detail") or old.get("score_detail")
-    doc["score"] = doc.get("score") or old.get("score", 0)
+    doc["score"] = doc.get("score") if doc.get("score") is not None else old.get("score")
     await db.companies.replace_one({"id": cid}, doc)
     if old.get("status") != doc.get("status"):
         await log_activity("Changement de statut", "entreprise", cid, old_state=old.get("status"), new_state=doc.get("status"))
@@ -550,8 +550,8 @@ async def generate_email_ep(body: GenericIn, user: dict = Depends(get_current_us
         await log_error("Format IA invalide", str(e), cid, "Régénérer l'email")
         raise HTTPException(502, f"Erreur IA: {e}")
     await log_activity("Message généré", "email", cid, new_state=company["name"])
-    return {"result": result, "problem": (analysis.get("problems") or [""])[0],
-            "service": analysis.get("recommended_service", "")}
+    return {"result": result, "problem": (analysis.get("hypotheses") or analysis.get("missing_or_unverified") or [""])[0],
+            "service": analysis.get("potential_service", "")}
 
 @api.post("/emails")
 async def save_email(email: EmailDraft, user: dict = Depends(get_current_user)):
@@ -862,8 +862,10 @@ async def update_settings(body: GenericIn, user: dict = Depends(get_current_user
 @api.get("/dashboard")
 async def dashboard(user: dict = Depends(get_current_user)):
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-    companies = await db.companies.find({}, {"_id": 0}).to_list(5000)
+    real = {"is_demo": {"$ne": True}}
+    companies = await db.companies.find(real, {"_id": 0}).to_list(5000)
     total = len(companies)
+    demo_count = await db.companies.count_documents({"is_demo": True})
     by_status: dict = {}
     by_sector: dict = {}
     for c in companies:
@@ -873,14 +875,14 @@ async def dashboard(user: dict = Depends(get_current_user)):
     def count_status(*ss):
         return sum(by_status.get(s, 0) for s in ss)
 
-    emails_sent = await db.emails.count_documents({"status": "Envoyé"})
-    to_validate = await db.emails.count_documents({"status": "À valider"})
-    followups_scheduled = await db.followups.count_documents({"status": "Programmée"})
-    replies_total = await db.replies.count_documents({})
-    positive_replies = await db.replies.count_documents({"category": {"$in": ["Intéressé", "Souhaite un rendez-vous", "Demande d'informations"]}})
-    opportunities = await db.opportunities.count_documents({})
+    emails_sent = await db.emails.count_documents({"status": "Envoyé", **real})
+    to_validate = await db.emails.count_documents({"status": "À valider", **real})
+    followups_scheduled = await db.followups.count_documents({"status": "Programmée", **real})
+    replies_total = await db.replies.count_documents(real)
+    positive_replies = await db.replies.count_documents({"category": {"$in": ["Intéressé", "Souhaite un rendez-vous", "Demande d'informations"]}, **real})
+    opportunities = await db.opportunities.count_documents(real)
     clients = count_status("Client")
-    new_week = await db.companies.count_documents({"created_at": {"$gte": week_ago}})
+    new_week = await db.companies.count_documents({"created_at": {"$gte": week_ago}, **real})
 
     response_rate = round((replies_total / emails_sent * 100), 1) if emails_sent else 0
     positive_rate = round((positive_replies / replies_total * 100), 1) if replies_total else 0
@@ -891,8 +893,8 @@ async def dashboard(user: dict = Depends(get_current_user)):
     priority = {
         "messages_a_valider": to_validate,
         "prospects_a_relancer": followups_scheduled,
-        "reponses_positives_non_traitees": await db.replies.count_documents({"handled": False, "category": {"$in": ["Intéressé", "Souhaite un rendez-vous"]}}),
-        "prospects_sans_action": count_status("Nouveau", "À analyser"),
+        "reponses_positives_non_traitees": await db.replies.count_documents({"handled": False, "category": {"$in": ["Intéressé", "Souhaite un rendez-vous"]}, **real}),
+        "prospects_sans_action": count_status("Nouveau", "À analyser", "Importé"),
         "erreurs_automatisation": await db.errors.count_documents({"resolved": False}),
     }
 
@@ -921,6 +923,7 @@ async def dashboard(user: dict = Depends(get_current_user)):
         "by_sector": [{"name": k, "value": v} for k, v in by_sector.items()],
         "funnel": funnel,
         "priority": priority,
+        "demo_count": demo_count,
     }
 
 
@@ -935,12 +938,16 @@ async def seed_demo(user: dict = Depends(get_current_user)):
         await db.companies.insert_one({
             "id": cid, "name": name, "sector": sector, "city": city, "postal_code": cp, "region": "Île-de-France",
             "country": "France", "website": web, "generic_email": email, "size": size, "status": status,
-            "score": score, "source": "Données de démonstration", "tags": ["démo"], "is_demo": True,
+            "score": (score if score else None), "source": "Données de démonstration", "tags": ["démo"], "is_demo": True,
             "legal_name": "", "description": f"{sector} basé à {city}.", "phone": "01 23 45 67 89",
-            "analysis": {"summary": f"{name} est un acteur du secteur {sector}.",
-                         "problems": ["Site peu optimisé pour la conversion", "Absence de prise de rendez-vous en ligne"],
-                         "consequences": ["Perte de contacts qualifiés"],
-                         "recommended_service": "Tunnel de conversion", "confidence": "moyen",
+            "analysis": {"summary": f"{name} est un acteur du secteur {sector} (données de démonstration).",
+                         "data_available": [f"Secteur renseigné : {sector}", f"Ville : {city}"] + ([f"Site : {web}"] if web else []),
+                         "missing_or_unverified": ["Présence LinkedIn non confirmée", "Tunnel public non vérifié"] + ([] if web else ["Site internet non renseigné dans le dossier"]),
+                         "hypotheses": ["Parcours de conversion potentiellement perfectible — à confirmer"],
+                         "questions_to_ask": ["Disposez-vous d'un outil de prise de rendez-vous en ligne ?"],
+                         "potential_service": "Tunnel de conversion", "service_condition": "à envisager si l'absence d'outil de conversion est confirmée",
+                         "entry_offer": "Audit gratuit du système d'acquisition digitale", "confidence": "faible",
+                         "reliability_note": "Fiabilité faible — aucune vérification extérieure effectuée.", "insufficient": False,
                          "prospecting_angle": "Améliorer la conversion des visiteurs"} if score else None,
             "created_at": now_iso(), "updated_at": now_iso()})
         fn, ln, role, level, cemail = seed_data.DEMO_CONTACTS[i]

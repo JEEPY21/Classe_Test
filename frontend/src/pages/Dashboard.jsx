@@ -60,11 +60,17 @@ export default function Dashboard() {
   return (
     <div>
       <PageHeader title="Tableau de bord" subtitle="Vue d'ensemble de votre activité de prospection">
-        <Btn variant="secondary" onClick={clearDemo}><Trash2 className="w-4 h-4" /> Effacer démo</Btn>
+        <Btn variant="secondary" onClick={clearDemo} data-testid="clear-demo-btn"><Trash2 className="w-4 h-4" /> Supprimer les données de démo</Btn>
         <Btn variant="blue" onClick={seed} disabled={seeding} data-testid="seed-demo-btn">
           <Database className="w-4 h-4" /> {seeding ? "Création..." : "Données de démo"}
         </Btn>
       </PageHeader>
+
+      {data.demo_count > 0 && (
+        <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-100 border border-slate-200 rounded-lg px-3 py-2 mb-5" data-testid="demo-notice">
+          <Database className="w-3.5 h-3.5" /> {data.demo_count} entreprise(s) de démonstration présente(s) — <b>exclues des statistiques ci-dessous</b>. Elles servent uniquement à tester l'interface.
+        </div>
+      )}
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <Kpi icon={Users} label="Total prospects" value={k.total_prospects} testid="kpi-total" />

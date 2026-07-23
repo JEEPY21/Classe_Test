@@ -4,7 +4,22 @@ import client, { apiError } from "@/lib/api";
 import { Card, Btn, Loading, Input, Select, Textarea, ScoreBadge } from "@/components/kit";
 import StatusBadge, { ALL_STATUSES } from "@/components/StatusBadge";
 import { toast } from "sonner";
-import { ArrowLeft, Sparkles, Mail, Save, Loader2, Globe, Phone, MapPin, Plus } from "lucide-react";
+import { ArrowLeft, Sparkles, Mail, Save, Loader2, Globe, Phone, MapPin, Plus, AlertCircle } from "lucide-react";
+
+const BLOCK_COLORS = {
+  emerald: "text-emerald-700", amber: "text-amber-700", blue: "text-blue-700", slate: "text-slate-600",
+};
+function Block({ title, items, color = "slate", italic }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div>
+      <div className={`text-xs uppercase font-medium mb-1 ${BLOCK_COLORS[color]}`}>{title}</div>
+      <ul className={`list-disc list-inside space-y-0.5 text-slate-700 ${italic ? "italic" : ""}`}>
+        {items.map((x, i) => <li key={i}>{x}</li>)}
+      </ul>
+    </div>
+  );
+}
 
 export default function CompanyDetail() {
   const { id } = useParams();
@@ -71,6 +86,7 @@ export default function CompanyDetail() {
           <div className="flex items-center gap-3">
             <h1 className="font-heading text-2xl font-bold text-slate-900 tracking-tight">{c.name}</h1>
             <ScoreBadge score={c.score} />
+            {c.is_demo && <span data-testid="demo-badge" className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200 font-medium">Démo</span>}
           </div>
           <div className="flex flex-wrap items-center gap-4 mt-2 text-sm text-slate-500">
             <span>{c.sector}</span>
@@ -94,19 +110,34 @@ export default function CompanyDetail() {
         <div className="lg:col-span-2 space-y-6">
           {/* Analysis */}
           <Card className="p-6">
-            <h3 className="font-heading font-semibold text-slate-800 mb-4 flex items-center gap-2"><Sparkles className="w-4 h-4 text-blue-600" /> Analyse digitale</h3>
-            {!a ? <p className="text-sm text-slate-400">Aucune analyse. Lancez l'analyse IA pour identifier les problèmes et le service à proposer.</p> : (
-              <div className="space-y-4 text-sm">
-                <div><div className="text-xs uppercase text-slate-400 mb-1">Résumé</div><p className="text-slate-700">{a.summary}</p></div>
-                <div><div className="text-xs uppercase text-slate-400 mb-1">Problèmes visibles</div>
-                  <ul className="list-disc list-inside text-slate-700 space-y-0.5">{(a.problems || []).map((x, i) => <li key={i}>{x}</li>)}</ul></div>
-                {a.consequences && <div><div className="text-xs uppercase text-slate-400 mb-1">Conséquences possibles</div>
-                  <ul className="list-disc list-inside text-slate-700 space-y-0.5">{a.consequences.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
-                <div className="flex flex-wrap gap-4">
-                  <div><div className="text-xs uppercase text-slate-400 mb-1">Service recommandé</div><span className="inline-block px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium">{a.recommended_service}</span></div>
+            <h3 className="font-heading font-semibold text-slate-800 mb-4 flex items-center gap-2"><Sparkles className="w-4 h-4 text-blue-600" /> Analyse du dossier</h3>
+            {!a ? <p className="text-sm text-slate-400">Aucune analyse. Lancez l'analyse IA (basée uniquement sur les données du dossier, sans vérification extérieure).</p> :
+              a.insufficient ? (
+                <div className="text-sm">
+                  <div className="flex items-center gap-2 text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mb-4">
+                    <AlertCircle className="w-4 h-4" /> Analyse insuffisante pour produire un diagnostic fiable.
+                  </div>
+                  {(a.missing_or_unverified?.length > 0) && <Block title="Informations à rechercher" items={a.missing_or_unverified} color="amber" />}
+                  {(a.questions_to_ask?.length > 0) && <Block title="Questions à poser au prospect" items={a.questions_to_ask} color="blue" />}
+                </div>
+              ) : (
+              <div className="space-y-5 text-sm">
+                <div><div className="text-xs uppercase text-slate-400 mb-1">Résumé prudent</div><p className="text-slate-700">{a.summary}</p></div>
+
+                <Block title="A. Données disponibles (faits du dossier)" items={a.data_available || a.problems} color="emerald" />
+                <Block title="B. Informations manquantes ou non vérifiées" items={a.missing_or_unverified} color="amber" />
+                <Block title="C. Hypothèses commerciales (conditionnelles)" items={a.hypotheses || a.consequences} color="blue" italic />
+                {(a.questions_to_ask?.length > 0) && <Block title="Questions à poser au prospect" items={a.questions_to_ask} color="slate" />}
+
+                <div className="flex flex-wrap gap-4 pt-2 border-t border-slate-100">
+                  <div><div className="text-xs uppercase text-slate-400 mb-1">Service potentiel à explorer</div>
+                    <span className="inline-block px-2.5 py-1 rounded-md bg-blue-50 text-blue-700 font-medium">{a.potential_service || a.recommended_service || "—"}</span></div>
+                  <div><div className="text-xs uppercase text-slate-400 mb-1">Offre d'entrée</div><span className="text-slate-700">{a.entry_offer || "Audit gratuit"}</span></div>
                   <div><div className="text-xs uppercase text-slate-400 mb-1">Confiance</div><span className="text-slate-700 capitalize">{a.confidence}</span></div>
                 </div>
+                {a.service_condition && <p className="text-xs text-slate-500 italic">Condition : {a.service_condition}</p>}
                 {a.prospecting_angle && <div><div className="text-xs uppercase text-slate-400 mb-1">Angle de prospection</div><p className="text-slate-700 italic">{a.prospecting_angle}</p></div>}
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5">{a.reliability_note || "Fiabilité faible — aucune vérification extérieure effectuée."}</div>
               </div>
             )}
           </Card>
@@ -143,23 +174,45 @@ export default function CompanyDetail() {
         <div className="space-y-6">
           {/* Score detail */}
           <Card className="p-6">
-            <h3 className="font-heading font-semibold text-slate-800 mb-4">Score de qualification</h3>
-            <div className="flex items-center gap-3 mb-4">
-              <div className="text-4xl font-heading font-bold text-slate-900">{c.score || 0}</div>
-              <div className="text-sm text-slate-400">/ 100</div>
-              {sd && <span className="ml-auto text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-600">{sd.recommendation}</span>}
-            </div>
-            {sd?.breakdown && (
-              <div className="space-y-2 text-xs">
-                {Object.entries(sd.breakdown).map(([k, v]) => (
-                  <div key={k} className="flex items-center justify-between">
-                    <span className="text-slate-500 capitalize">{k.replace(/_/g, " ")}</span>
-                    <span className="font-medium text-slate-700">{v}</span>
-                  </div>
-                ))}
+            <h3 className="font-heading font-semibold text-slate-800 mb-1">Score commercial</h3>
+            {c.score === null || c.score === undefined ? (
+              <div className="py-4">
+                <div className="text-lg font-medium text-slate-400" data-testid="score-not-calculated">Score commercial : non calculé</div>
+                <p className="text-xs text-slate-400 mt-2">Lancez l'analyse IA pour obtenir un score provisoire basé sur les données du dossier.</p>
               </div>
+            ) : a?.insufficient ? (
+              <div className="py-4" data-testid="score-insufficient">
+                <div className="text-base font-medium text-amber-700">Analyse insuffisante pour un diagnostic fiable</div>
+                <p className="text-xs text-slate-400 mt-2">Complétez le dossier (secteur, site, contact, email…) puis relancez l'analyse pour un score fiable.</p>
+              </div>
+            ) : (
+              <>
+                <div className="text-xs text-slate-500 mb-2">{sd?.score_label || "Score provisoire basé sur les données du dossier"}</div>
+                <div className="flex items-center gap-3 mb-2">
+                  <div className="text-4xl font-heading font-bold text-slate-900" data-testid="score-value">{c.score}</div>
+                  <div className="text-sm text-slate-400">/ 100</div>
+                  {sd && <span className="ml-auto text-xs px-2 py-1 rounded-md bg-slate-100 text-slate-600">{sd.recommendation}</span>}
+                </div>
+                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2.5 py-1.5 mb-3">
+                  {sd?.reliability || "Fiabilité faible — aucune vérification extérieure effectuée."}
+                </div>
+                {sd?.breakdown && (
+                  <div className="space-y-1.5 text-xs">
+                    {Object.entries(sd.breakdown).map(([k, v]) => (
+                      <div key={k} className="flex items-center justify-between">
+                        <span className="text-slate-500 capitalize">{k.replace(/_/g, " ")}</span>
+                        <span className="font-medium text-slate-700">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {sd?.explanation && <p className="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-100">{sd.explanation}</p>}
+                {(sd?.data_used?.length > 0) && <div className="mt-3"><div className="text-[10px] uppercase text-slate-400 mb-1">Données utilisées</div><ul className="list-disc list-inside text-xs text-slate-600">{sd.data_used.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+                {(sd?.data_absent?.length > 0) && <div className="mt-2"><div className="text-[10px] uppercase text-slate-400 mb-1">Données absentes (limitent le score)</div><ul className="list-disc list-inside text-xs text-slate-600">{sd.data_absent.map((x, i) => <li key={i}>{x}</li>)}</ul></div>}
+                {sd?.limits && <p className="text-xs text-slate-400 mt-2">Limites : {sd.limits}</p>}
+                <p className="text-[11px] text-slate-400 mt-2">Recherche extérieure : {sd?.external_search_done ? "effectuée" : "non effectuée"}</p>
+              </>
             )}
-            {sd?.explanation && <p className="text-xs text-slate-500 mt-3 pt-3 border-t border-slate-100">{sd.explanation}</p>}
           </Card>
 
           {/* Contacts */}

@@ -1,0 +1,40 @@
+{
+  "summary": "Both backend (pytest, 6/6) and frontend (Playwright end-to-end) tests PASS for the prudent-analysis + demo-data feature set. Verified via public REACT_APP_BACKEND_URL. (1) Company created with name only has score=null in DB and shows 'Non calculé' in the list and 'Score commercial : non calculé' (data-testid=score-not-calculated) on the detail — 0/100 is not shown. (2) Full-data company ('TEST_Alpha_Conseil…' with sector/city/site/email) analyzed via GPT-5.5 produces the exact 3-block layout ('A. Données disponibles', 'B. Informations manquantes ou non vérifiées', 'C. Hypothèses commerciales'), score-value 28/100 with 'Score provisoire basé sur les données du dossier', reliability note 'Fiabilité faible — aucune vérification extérieure effectuée', 'Données utilisées' + 'Données absentes' lists, 'Recherche extérieure : non effectuée', 'Service potentiel à explorer' + service_condition text. No categorical formulation ('aucun site', 'pas de LinkedIn', 'aucun tunnel') is present. (3) Name-only company analyzed shows both the 'Analyse insuffisante' banner and the data-testid=score-insufficient block in the score card. (4) POST /api/demo/seed creates 10 demo companies; data-testid=demo-notice bandeau appears mentioning 'exclues des statistiques'; data-testid=kpi-total is unchanged (excludes demos). demo-badge visible on demo company detail (data-testid=demo-badge). (5) data-testid=clear-demo-btn removes demos; dashboard + Entreprises continue to work.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Ajouter une entreprise dialog", "issues": ["Radix warning in console: 'Missing Description or aria-describedby for DialogContent'. Accessibility nit, non-blocking."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_prudent_analysis.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Optional a11y polish: add DialogDescription (or aria-describedby) to the 'Ajouter une entreprise' and other Radix DialogContent components to silence Radix warning. Non-blocking."
+  ],
+  "critical_code_review_comments": [
+    "server.py analyze() sets score = int(score_res.get('score', 0)) even when analysis.insufficient=True. The frontend already handles this correctly by prioritizing the insufficient block (data-testid=score-insufficient) over the numeric score, but the raw stored score for an 'insufficient' analysis remains a low number rather than None. Consider setting score=None (or storing a separate 'provisional' flag) when analysis.insufficient is True so the list column also shows 'Non calculé' for insufficient cases — currently after analyzing a name-only company its list Score changes from 'Non calculé' to a number (observed 7) while the detail still displays the insufficient state.",
+    "ai_service.py score prompt asks LLM to set external_search_done=false explicitly. Consider forcing sd['external_search_done']=False server-side after parsing to guarantee traceability regardless of LLM response.",
+    "server.py update_company preserves score only if the incoming score is not None; that's correct. But bulk-status doesn't touch the score, good.",
+    "CompanyDetail.jsx: Block component ignores empty arrays and hides the section — good. Consider surfacing 'Aucune donnée' fallback in blocks A/B/C when the array is empty to make the traceability explicit."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_prudent_analysis.py (new)"
+  ],
+  "success_rate": {
+    "backend": "100% (6/6 pytest)",
+    "frontend": "100% (all 5 scenarios verified end-to-end)"
+  },
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "Created ephemeral TEST_Beta_* and TEST_Alpha_Conseil_* companies during testing; all deleted at teardown. Demo dataset (10 companies) seeded then cleared.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://prospectia-app-1.preview.emergentagent.com. Login is /login (password Prospectia2026! for pre-filled jp.koffi@prospectia.app). After login the dashboard route is '/'. Key data-testids for this feature set: seed-demo-btn, clear-demo-btn, demo-notice, kpi-total, demo-badge, add-company-btn, company-name-input, save-company-btn, delete-company-{id}, analyze-btn, score-not-calculated, score-insufficient, score-value. The 'Ajouter une entreprise' dialog has one text input per field with labels ('Nom *', 'Ville', 'Code postal', 'Téléphone', 'Site internet', 'Email générique'); use label-based selection because there's a hidden checkbox input in each row that skews input.nth() indexing. Website input has placeholder 'https://...'. AI analyze takes ~15-30s per call; wait up to 90s.",
+  "rca of the issue": "Not applicable — no bug found. Feature set is correctly implemented. Minor UX consideration flagged in critical_code_review_comments about the list Score column reverting from 'Non calculé' to a numeric score after an 'Analyse insuffisante' analysis; behavior in the detail view is however correct (score-insufficient block shown)."
+}
