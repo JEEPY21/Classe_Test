@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only re-verification of PROSPECTIA login flow on the public REACT_APP_BACKEND_URL. All 4 requested scenarios pass end-to-end: (1) wrong password shows 'Email ou mot de passe incorrect' in data-testid='login-error' with no redirect; (2) correct password login for jp.koffi@prospectia.app / Prospectia2026! succeeds, token is written to localStorage as 'prospectia_token' (JWT, 232 chars), and the dashboard renders with 'Total prospects: 10' KPI; (3) full page reload (F5) preserves the session — user stays on the dashboard (login form NOT re-rendered, /api/auth/me is called with the persisted token); (4) logout via data-testid='logout-btn' clears localStorage token and returns to /login, and re-login with the same credentials succeeds again. No auth regression detected. Report of 'le mot de passe ne fonctionne plus' is not reproducible — it was indeed a transient backend reload window as diagnosed.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_4.json"
+  ],
+  "action_items": [
+    "None for auth. Optional (docs only): note that the dashboard route is '/', not '/dashboard' — any future test scripts or docs referring to '/dashboard' should be updated to avoid the same false negative I initially hit (my wait_for_url('**/dashboard**') timed out even though login succeeded).",
+    "The KPI card label is CSS-uppercased ('TOTAL PROSPECTS' rendered); any programmatic text check should be case-insensitive."
+  ],
+  "critical_code_review_comments": [
+    "AuthContext + Login flow is clean: token persisted under 'prospectia_token', rehydrated via GET /api/auth/me on mount, cleared on logout. Matches the reference files listed in the review.",
+    "Login button correctly trims email/password before POST /api/auth/login — good defense against trailing whitespace pastes.",
+    "SPA routing: '/' is Dashboard and '*' redirects to '/'. Consider adding an explicit '/dashboard' alias if any external docs or emails link there, otherwise leave as-is."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "skipped (frontend-only per request)",
+    "frontend": "100% (4/4 auth flows)"
+  },
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md) — VERIFIED WORKING via public URL https://prospectia-app-1.preview.emergentagent.com",
+  "seed_data_creation": "None. Existing seeded admin used as-is.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://prospectia-app-1.preview.emergentagent.com. Login page prefills email jp.koffi@prospectia.app; only mot de passe (Prospectia2026!) needs to be typed. Test IDs used: login-email, login-password, login-submit, login-error, logout-btn. IMPORTANT: after a successful login the URL is '/', NOT '/dashboard' — do not use wait_for_url('**/dashboard**'). Use case-insensitive checks for the 'TOTAL PROSPECTS' KPI (rendered uppercase via CSS). Session persistence works via localStorage 'prospectia_token' + GET /api/auth/me on mount; F5 keeps the user logged in. Logout clears the token.",
+  "rca of the issue": "User-reported bug 'le mot de passe ne fonctionne plus' is NOT reproducible now. RCA (confirmed): the backend was momentarily returning an HTML error page during a WatchFiles hot-reload window (uvicorn --reload triggered by a code save), and the frontend surfaces any non-JSON/200 response as 'Email ou mot de passe incorrect'. The password itself is correct and unchanged, bcrypt hash is intact in Mongo, and the seed_admin routine is idempotent. Mitigation for future occurrences: (a) show a distinct error message when the login response is not JSON or is 5xx (e.g. 'Service momentanément indisponible, réessayez'); (b) add a small automatic retry (1x, ~1s) for /api/auth/login on network/5xx errors; (c) disable --reload in the preview supervisor config, or ensure a health check gate before serving traffic after reload."
+}
