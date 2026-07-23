@@ -1,0 +1,33 @@
+{
+  "summary": "Frontend-only re-verification of PROSPECTIA login flow on public REACT_APP_BACKEND_URL after the transient-error handling fix in Login.jsx + AuthContext.js. All 4 requested scenarios PASS: (1) wrong password -> exact 'Email ou mot de passe incorrect' inside data-testid='login-error', no redirect (server returned 401 as expected in console); (2) correct password 'Prospectia2026!' for jp.koffi@prospectia.app -> success, redirected to '/', JWT (232 chars) written to localStorage key 'prospectia_token', KPI 'TOTAL PROSPECTS' visible on dashboard (case-insensitive match confirmed value=15); (3) F5 reload -> user remains logged in, token persists, dashboard re-renders (GET /api/auth/me works); (4) logout via data-testid='logout-btn' clears the token and returns to /login, and re-login with the same credentials succeeds. No regression detected. Fix is confirmed working from browser end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/test_reports/iteration_5.json"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login.jsx: status-based error mapping is correct - 401 -> credentials error, 404/502/503/504/5xx/no-response -> 'Service momentanément indisponible...'. Clean and easy to reason about.",
+    "AuthContext.js: single automatic retry after 1.5s on transient errors is a minimal but effective mitigation for the uvicorn --reload window. Consider capping to only network/5xx (not 404) in prod so that a genuinely misrouted /api/auth/login does not double-fire, but for a preview/dev preview this is fine.",
+    "Session rehydration via GET /api/auth/me on mount + token in localStorage under 'prospectia_token' is consistent and matches memory/test_credentials.md.",
+    "Nit: after logout, using window.location.href='/login' forces a full page reload; a React Router navigate('/login') would keep SPA state but this is not a bug."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "skipped (frontend-only per request)",
+    "frontend": "100% (5/5 assertions across 4 scenarios)"
+  },
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md) - VERIFIED WORKING via public URL https://prospectia-app-1.preview.emergentagent.com",
+  "seed_data_creation": "None. Existing seeded admin used as-is.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://prospectia-app-1.preview.emergentagent.com. Login page prefills email jp.koffi@prospectia.app; only password (Prospectia2026!) needs to be typed. Test IDs: login-email, login-password, login-submit, login-error, logout-btn. IMPORTANT: after successful login the URL is '/', NOT '/dashboard'. KPI 'TOTAL PROSPECTS' is CSS-uppercased - use case-insensitive checks. Session persistence works via localStorage 'prospectia_token' + GET /api/auth/me on mount; F5 keeps the user logged in. Logout uses window.location.href='/login' (full reload, expected).",
+  "rca of the issue": "Original user report 'Request failed with status code 404' at login was caused by hitting the backend during a uvicorn --reload window. Fix (already applied): (a) Login.jsx maps 401 -> 'Email ou mot de passe incorrect' and 404/502/503/504/5xx/network -> 'Service momentanément indisponible. Patientez quelques secondes puis réessayez.', so the user is no longer misled by a transient 404 posing as a credentials error; (b) AuthContext.login auto-retries once after 1.5s on transient errors, which absorbs the reload window in practice. Both behaviors are visible and verified in this iteration."
+}

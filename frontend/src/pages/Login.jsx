@@ -22,8 +22,8 @@ export default function Login() {
       const status = err.response?.status;
       if (status === 401) {
         setError("Email ou mot de passe incorrect");
-      } else if (!err.response || status >= 500) {
-        setError("Service momentanément indisponible. Veuillez réessayer dans quelques secondes.");
+      } else if (!err.response || [404, 502, 503, 504].includes(status) || status >= 500) {
+        setError("Service momentanément indisponible. Patientez quelques secondes puis réessayez.");
       } else {
         setError(apiError(err));
       }

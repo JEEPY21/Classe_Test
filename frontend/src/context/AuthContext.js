@@ -18,7 +18,20 @@ export function AuthProvider({ children }) {
   }, []);
 
   const login = async (email, password) => {
-    const { data } = await client.post("/auth/login", { email, password });
+    const attempt = () => client.post("/auth/login", { email, password });
+    let data;
+    try {
+      ({ data } = await attempt());
+    } catch (err) {
+      const status = err.response?.status;
+      const transient = !err.response || [404, 502, 503, 504].includes(status) || status >= 500;
+      if (transient) {
+        await new Promise((r) => setTimeout(r, 1500));
+        ({ data } = await attempt());
+      } else {
+        throw err;
+      }
+    }
     localStorage.setItem("prospectia_token", data.token);
     setUser(data.user);
     return data.user;
