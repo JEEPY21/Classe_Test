@@ -469,11 +469,20 @@ async def analyze(cid: str, user: dict = Depends(get_current_user)):
         await log_error("Format IA invalide", str(e), cid, "Relancer l'analyse")
         await db.companies.update_one({"id": cid}, {"$set": {"status": "À analyser"}})
         raise HTTPException(502, f"Erreur IA: {e}")
-    score = int(score_res.get("score", 0))
-    await db.companies.update_one({"id": cid}, {"$set": {
-        "analysis": analysis, "score_detail": score_res, "score": score,
-        "status": "Qualifié" if score >= 50 else "Non qualifié", "updated_at": now_iso()}})
-    await log_activity("Analyse terminée", "entreprise", cid, new_state=f"Score {score}")
+    score_res["external_search_done"] = False  # aucune vérification extérieure à ce stade (traçabilité garantie)
+    insufficient = bool(analysis.get("insufficient"))
+    if insufficient:
+        # dossier trop pauvre : pas de score officiel, on conserve l'analyse (bloc « analyse insuffisante »)
+        await db.companies.update_one({"id": cid}, {"$set": {
+            "analysis": analysis, "score_detail": score_res, "score": None,
+            "status": "À analyser", "updated_at": now_iso()}})
+        await log_activity("Analyse terminée", "entreprise", cid, new_state="Analyse insuffisante")
+    else:
+        score = int(score_res.get("score", 0))
+        await db.companies.update_one({"id": cid}, {"$set": {
+            "analysis": analysis, "score_detail": score_res, "score": score,
+            "status": "Qualifié" if score >= 50 else "Non qualifié", "updated_at": now_iso()}})
+        await log_activity("Analyse terminée", "entreprise", cid, new_state=f"Score provisoire {score}")
     doc = await db.companies.find_one({"id": cid}, {"_id": 0})
     return doc
 

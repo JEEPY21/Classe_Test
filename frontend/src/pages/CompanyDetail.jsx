@@ -175,15 +175,15 @@ export default function CompanyDetail() {
           {/* Score detail */}
           <Card className="p-6">
             <h3 className="font-heading font-semibold text-slate-800 mb-1">Score commercial</h3>
-            {c.score === null || c.score === undefined ? (
-              <div className="py-4">
-                <div className="text-lg font-medium text-slate-400" data-testid="score-not-calculated">Score commercial : non calculé</div>
-                <p className="text-xs text-slate-400 mt-2">Lancez l'analyse IA pour obtenir un score provisoire basé sur les données du dossier.</p>
-              </div>
-            ) : a?.insufficient ? (
+            {a?.insufficient ? (
               <div className="py-4" data-testid="score-insufficient">
                 <div className="text-base font-medium text-amber-700">Analyse insuffisante pour un diagnostic fiable</div>
                 <p className="text-xs text-slate-400 mt-2">Complétez le dossier (secteur, site, contact, email…) puis relancez l'analyse pour un score fiable.</p>
+              </div>
+            ) : c.score === null || c.score === undefined ? (
+              <div className="py-4">
+                <div className="text-lg font-medium text-slate-400" data-testid="score-not-calculated">Score commercial : non calculé</div>
+                <p className="text-xs text-slate-400 mt-2">Lancez l'analyse IA pour obtenir un score provisoire basé sur les données du dossier.</p>
               </div>
             ) : (
               <>
