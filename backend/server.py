@@ -245,9 +245,10 @@ async def list_companies(user: dict = Depends(get_current_user), status: Optiona
 @api.post("/companies")
 async def create_company(company: Company, user: dict = Depends(get_current_user)):
     doc = company.model_dump()
-    existing = await db.companies.find_one({"name": doc["name"]}, {"_id": 0})
+    ors = [{f: doc[f]} for f in ["name", "website", "phone", "generic_email", "address"] if doc.get(f)]
+    existing = await db.companies.find_one({"$or": ors}, {"_id": 0}) if ors else None
     if existing and detect_duplicate(existing, doc):
-        raise HTTPException(409, "Doublon détecté : cette entreprise existe déjà")
+        raise HTTPException(409, "Doublon détecté : cette entreprise existe déjà (nom, site, téléphone, email ou adresse identique)")
     doc["created_at"] = now_iso()
     doc["updated_at"] = now_iso()
     await db.companies.insert_one(doc)

@@ -4,7 +4,7 @@ import client, { apiError } from "@/lib/api";
 import { PageHeader, Card, Btn, Loading } from "@/components/kit";
 import { toast } from "sonner";
 import {
-  BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, FunnelChart, Funnel, LabelList
+  BarChart, Bar, PieChart, Pie, Cell, ResponsiveContainer, XAxis, YAxis, Tooltip, Legend, LabelList
 } from "recharts";
 import {
   Users, UserCheck, Mail, MessageSquare, ThumbsUp, CalendarCheck, Trophy, Euro,
