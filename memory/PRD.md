@@ -1,46 +1,30 @@
-# PRD — PROSPECTIA
+# PROSPECTIA — PRD & Suivi
 
 ## Problème / Vision
-Application web full-stack de prospection commerciale B2B assistée par IA, en français, pour Jean-Philippe Koffi (chef de projet marketing digital). Fonctionne comme une machine commerciale semi-automatisée : trouver/importer des entreprises → analyser → qualifier → générer un email → validation humaine → envoyer (simulation) → relancer → analyser les réponses → opportunités → client.
+Copilote commercial IA (prospection B2B) pour Jean-Philippe Koffi. Full-stack React + FastAPI + MongoDB, en français. Doit devenir un CRM **explicable, traçable, vérifiable** — pas un simple CRM avec des textes IA.
 
-## Architecture technique
-- Frontend: React 19 + React Router + Tailwind + shadcn/ui + Recharts + sonner. Sidebar fixe (desktop) + nav mobile. Fonts Manrope/IBM Plex Sans. Thème clair, bleu nuit.
-- Backend: FastAPI + Motor (MongoDB async). Toutes routes préfixées /api. Auth JWT Bearer (localStorage).
-- IA: OpenAI GPT-5.5 via emergentintegrations (EMERGENT_LLM_KEY), sorties JSON (ai_service.py).
-- Email: MODE SIMULATION (aucun envoi réel).
+## Architecture
+- Backend FastAPI (`/app/backend/server.py`), IA (`ai_service.py`, GPT-5.5 via Emergent LLM key), import (`import_service.py`), seed (`seed_data.py`).
+- Auth JWT Bearer (localStorage). Admin: jp.koffi@prospectia.app / Prospectia2026!
+- Frontend React, sidebar fixe, 15 sections, mode simulation email.
 
-## Personas / rôles
-- Admin (seul rôle actif) : Jean-Philippe Koffi. Structure évolutive prévue (commercial, analyste, validateur, lecture seule).
+## Implémenté (à jour)
+- **Phase 1 MVP (fait)** : Auth, Dashboard (KPIs + entonnoir + graphiques + actions prioritaires), Entreprises (CRUD, filtres, recherche, tri, sélection multiple, statut en masse, export CSV), Contacts, Analyse IA + Scoring /100 avec détail, Génération d'email (3 tons) + file de validation + envoi simulation + relances auto (J+3/7/14), Réponses (classification IA + arrêt relances + création opportunité + exclusion auto), Opportunités (Kanban), Services (17 préchargés), Modèles, Exclusions, Journal d'activité, Centre d'erreurs, Paramètres (5 onglets), données de démo.
+- **Correctif login** (trim email/mdp) — vérifié testing_agent iteration_2.
+- **BUG BLOQUANT import CORRIGÉ** (2026) : nouveau flux 2 étapes aperçu→confirmation. Détection encodage (utf-8-sig/utf-8/cp1252/latin-1) + séparateur (virgule/point-virgule/tab/pipe via csv.Sniffer), mappage par synonymes éditable, normalisation (email/url/tel), doublons internes + base, stratégies (ignorer/compléter/créer), rapport + téléchargement lignes rejetées, support .xlsx. Vérifié testing_agent iteration_3 (9/9 backend, 100% UI).
+- **Correctif logo** : brand PROSPECTIA non-sélectionnable (Layout.jsx). Vérifié iteration_3.
 
-## Collections MongoDB
-users, companies, contacts, campaigns, templates, emails, followups, replies, opportunities, services, exclusions, activity_logs, errors, settings.
+## Backlog prioritaire (demande de restructuration « copilote explicable »)
+Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test après chaque :
+- P0 : Schéma « information vérifiable » (source, preuve, statut vérification, confiance par donnée, historique) — modèle `collected_data`.
+- P0 : Indice de complétude + score de confiance global (distinct du score commercial).
+- P0 : Score commercial explicable (critères/poids/points/source/confiance), « score en attente » si non vérifié, modif manuelle + raison.
+- P0 : Explication de tout changement de score (ancien→nouveau, cause, impact) + stabilité (JSON déterministe, T° faible).
+- P1 : Séparer Problème / Offre d'entrée / Service final (3 champs). Emails prudents (formulations « je n'ai pas identifié… »). Panneau « Pourquoi cet email ».
+- P1 : Nuance tunnel de vente & réseaux sociaux (statuts « non détecté publiquement » vs « absent confirmé »). Questions d'audit auto. Confirmation prospect.
+- P1 : Chronologie métier + historique complet par fiche. Validation humaine par donnée.
+- P2 : Test complet Agence Novéa, agent de collecte externe (scraping autorisé pages publiques), enrichissement.
+- Reporté Phase 2 : Kanban avancé, rendez-vous, stats avancées, intégrations (Gmail/SMTP/Brevo, Make/n8n), multi-utilisateur.
 
-## Implémenté (2026-07 — MVP Phase 1)
-- Authentification JWT (login/logout/me, seed admin idempotent, mots de passe bcrypt).
-- Tableau de bord : 16+ KPIs, entonnoir de conversion, répartition par statut/secteur, bloc "Actions prioritaires aujourd'hui".
-- Entreprises : CRUD, recherche, filtres (statut/secteur), tri, sélection multiple, changement de statut en masse, détection de doublons multi-champs, import/export CSV.
-- Contacts : CRUD lié aux entreprises, recherche.
-- Analyse digitale IA + scoring /100 avec détail, explication, recommandation ; modification manuelle du score.
-- Génération d'emails IA (3 tons) + file de validation (valider/envoyer/programmer/refuser). Aucun 1er email envoyé sans validation.
-- Envoi simulation → crée automatiquement 3 relances (J+3, J+7, J+14).
-- Moteur de relances : génération IA, envoi simulation, arrêt auto si réponse/refus/client.
-- Réponses : classification IA (15 catégories) → stop relances, création opportunité, ajout auto exclusion si "Ne plus contacter".
-- Opportunités : pipeline Kanban.
-- Campagnes, Modèles de messages (préchargés), Services (17 préchargés), Liste d'exclusion (vérifiée avant envoi).
-- Journal d'activité complet (auto vs manuel), Centre d'erreurs.
-- Paramètres : Profil / Prospection / IA / Email / Conformité.
-- Données de démo (10 entreprises, contacts, 3 campagnes, emails, réponses, opportunités) créables/supprimables en 1 clic.
-
-## Backlog (Phase 2)
-- P1: Envoi réel Gmail/SMTP/Brevo (remplacer simulation), réception & rattachement automatique des réponses.
-- P1: Rendez-vous (section + assistant de préparation IA, Google Calendar/Calendly).
-- P2: Sources de prospects (Google Maps, annuaires, webhooks, Make/n8n), enrichissement, vérification d'email.
-- P2: Statistiques avancées (perf par campagne/modèle/objet, délais moyens), niveaux d'automatisation configurables poussés.
-- P2: Multi-utilisateur + rôles, récupération de mot de passe, brute-force protection.
-
-## Identifiants
-Admin: jp.koffi@prospectia.app / Prospectia2026! (voir /app/memory/test_credentials.md)
-
-## Prochaines tâches
-1. Phase 2 : intégration email réelle + réception réponses.
-2. Section Rendez-vous + assistant IA.
+## Prochaines actions
+Démarrer le schéma « information vérifiable » (sources/preuves/confiance/historique) — fondation de l'explicabilité, avant scoring explicable et emails prudents.

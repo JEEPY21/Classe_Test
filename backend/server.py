@@ -366,7 +366,10 @@ async def import_confirm(body: ConfirmImportIn, user: dict = Depends(get_current
               "companies_updated": 0, "contacts_created": 0, "duplicates_ignored": 0,
               "rejected": len(warnings), "warnings": len(warnings)}
     rejected_rows = list(warnings)
-    seen_in_batch = set()
+
+    # index des entreprises existantes par nom normalisé (cohérent avec l'aperçu)
+    all_comp = await db.companies.find({}, {"_id": 0}).to_list(5000)
+    existing_by_norm = {import_service.norm_header(c.get("name", "")): c for c in all_comp}
 
     for r in records:
         if r["_line"] in internal_dups:
@@ -375,7 +378,7 @@ async def import_confirm(body: ConfirmImportIn, user: dict = Depends(get_current
         contact = r.pop("_contact", None)
         r.pop("_line", None); r.pop("_warnings", None)
         name_norm = import_service.norm_header(r.get("name", ""))
-        existing = await db.companies.find_one({"name": {"$regex": f"^{re.escape(r['name'])}$", "$options": "i"}}, {"_id": 0})
+        existing = existing_by_norm.get(name_norm)
         if existing:
             if body.duplicate_strategy == "ignore":
                 report["duplicates_ignored"] += 1
@@ -389,9 +392,11 @@ async def import_confirm(body: ConfirmImportIn, user: dict = Depends(get_current
                 target_id = existing["id"]
             else:  # create_anyway
                 target_id = await _create_company(r)
+                existing_by_norm[name_norm] = {"id": target_id, "name": r.get("name", "")}
                 report["companies_created"] += 1
         else:
             target_id = await _create_company(r)
+            existing_by_norm[name_norm] = {"id": target_id, "name": r.get("name", "")}
             report["companies_created"] += 1
         if contact and target_id:
             cdoc = {"id": new_id(), "company_id": target_id,

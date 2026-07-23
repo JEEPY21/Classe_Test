@@ -150,10 +150,11 @@ def auto_map(headers):
     used_headers = set()
     norm_to_orig = {norm_header(h): h for h in headers}
     for field, syns in ALL_SYNONYMS.items():
+        field_norm = norm_header(field)
         for h_norm, h_orig in norm_to_orig.items():
             if h_orig in used_headers:
                 continue
-            if h_norm in syns or any(h_norm == norm_header(s) for s in syns):
+            if h_norm == field_norm or h_norm in syns or any(h_norm == norm_header(s) for s in syns):
                 mapping[field] = h_orig
                 used_headers.add(h_orig)
                 break
