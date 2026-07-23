@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only regression test on PROSPECTIA login flow after trim fix in /app/frontend/src/pages/Login.jsx. All 4 requested scenarios PASS via Playwright against the public REACT_APP_BACKEND_URL: (1) clean login with jp.koffi@prospectia.app / Prospectia2026! -> redirects to '/' and 'Total prospects' KPI is visible. (2) Login with leading/trailing spaces on BOTH email and password -> still redirects to dashboard (frontend .trim() works, backend accepts trimmed credentials). (3) Wrong password -> stays on /login and shows exact text 'Email ou mot de passe incorrect' inside [data-testid=login-error]; backend returns 401 as expected. (4) After login, sidebar visible; click on [data-testid=nav-companies] navigates to /entreprises, list renders without console errors; [data-testid=logout-btn] clears token and redirects to /login. No pageerrors, no unexpected console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Login.jsx trims both email and password on submit. This is convenient for the current test user but note it strips any leading/trailing whitespace from passwords — if a user ever chooses a password that intentionally starts or ends with a space, they will be locked out. Consider trimming email only, not password.",
+    "AuthContext.login stores JWT in localStorage. Note this is XSS-exposed; httpOnly cookies would be preferred for production (already flagged in iteration_1).",
+    "Login page has email pre-filled with the admin address in code (default useState('jp.koffi@prospectia.app')) — this is convenient for dev/testing but should be removed before production release."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (skip per request)", "frontend": "100% (5/5 login scenarios pass)"},
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None. Reused existing seeded admin.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Login trim fix verified end-to-end via UI. Backend /api/auth/login returns 200 for valid creds and 401 for wrong creds; error message text is 'Email ou mot de passe incorrect'. JWT stored in localStorage under key 'prospectia_token'. Dashboard KPI text to look for after login: 'Total prospects'. Nav testids follow pattern nav-<slug> defined in Layout.jsx.",
+  "rca of the issue": "Original bug: users reported 'Email ou mot de passe incorrect' with correct credentials, likely due to leading/trailing whitespace copied from a credentials doc or browser autofill. Backend accepts exact string only. Fix in Login.jsx line 19: `await login(email.trim(), password.trim())` — verified working. Reproduction with '  jp.koffi@prospectia.app  ' / '  Prospectia2026!  ' now succeeds."
+}
