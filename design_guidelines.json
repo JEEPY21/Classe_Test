@@ -1,0 +1,179 @@
+{
+  "theme": "light",
+  "typography": {
+    "headings": {
+      "font_family": "Manrope",
+      "weights": ["600", "700", "800"],
+      "usage": "Use Manrope for all headings. Ensure tracking-tight for H1-H3 to maintain a premium tech look.",
+      "scales": {
+        "h1": "text-3xl sm:text-4xl font-bold tracking-tight text-slate-900",
+        "h2": "text-2xl sm:text-3xl font-semibold tracking-tight text-slate-800",
+        "h3": "text-xl sm:text-2xl font-semibold tracking-tight text-slate-800",
+        "h4": "text-lg sm:text-xl font-medium text-slate-800"
+      }
+    },
+    "body": {
+      "font_family": "IBM Plex Sans",
+      "weights": ["400", "500"],
+      "usage": "Use IBM Plex Sans for all body text, tables, and UI controls for maximum legibility.",
+      "scales": {
+        "large": "text-lg leading-relaxed text-slate-700",
+        "base": "text-base leading-relaxed text-slate-600",
+        "small": "text-sm text-slate-500",
+        "tiny": "text-xs font-medium uppercase tracking-[0.2em] text-slate-400"
+      }
+    },
+    "import_instruction": "Add Google Fonts imports for 'Manrope' and 'IBM Plex Sans' to index.html or global css."
+  },
+  "colors": {
+    "primary_brand": {
+      "structure": "#0F172A",
+      "structure_description": "Midnight blue for sidebar, header text, and primary structure.",
+      "action": "#2563EB",
+      "action_hover": "#1D4ED8"
+    },
+    "surface": {
+      "main_background": "#F8FAFC",
+      "card_background": "#FFFFFF",
+      "secondary_background": "#F1F5F9",
+      "border": "#E2E8F0"
+    },
+    "status": {
+      "success": {
+        "text": "#15803D",
+        "bg": "#DCFCE7",
+        "border": "#22C55E",
+        "description": "Green for interested prospects (prospects intéressés)."
+      },
+      "warning": {
+        "text": "#B45309",
+        "bg": "#FEF3C7",
+        "border": "#F59E0B",
+        "description": "Orange for pending actions (actions en attente)."
+      },
+      "error": {
+        "text": "#B91C1C",
+        "bg": "#FEE2E2",
+        "border": "#EF4444",
+        "description": "Red for errors, refusals, and exclusions (erreurs/refus/exclusions)."
+      },
+      "info": {
+        "text": "#1D4ED8",
+        "bg": "#DBEAFE",
+        "border": "#3B82F6",
+        "description": "Blue for prospects in progress (prospects en cours)."
+      }
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#475569",
+      "muted": "#94A3B8"
+    }
+  },
+  "visual_enhancers": {
+    "shadows": {
+      "card": "shadow-sm",
+      "dropdown": "shadow-lg shadow-slate-200/50",
+      "hover": "hover:shadow-md transition-shadow duration-200"
+    },
+    "borders": {
+      "radius": "rounded-lg",
+      "style": "border border-slate-200"
+    },
+    "surfaces": {
+      "neumorphism_avoid": "Do not use soft UI everywhere. Use sharp inner contrasts.",
+      "glassmorphism": "Not recommended for this data-heavy CRM unless for a floating action bar. Stick to solid white backgrounds with 1px border for clarity.",
+      "table_rows": "hover:bg-slate-50 transition-colors"
+    }
+  },
+  "component_style": {
+    "buttons": {
+      "primary": "bg-slate-900 text-white hover:bg-slate-800 rounded-lg font-medium px-4 py-2 transition-all active:scale-[0.98]",
+      "secondary": "bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg font-medium px-4 py-2 transition-all active:scale-[0.98]",
+      "danger": "bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-medium px-4 py-2 transition-all"
+    },
+    "cards": {
+      "base": "bg-white rounded-lg border border-slate-200 shadow-sm p-6",
+      "kpi": "flex flex-col gap-2 p-6 bg-white rounded-lg border border-slate-200 shadow-sm"
+    },
+    "badges": {
+      "base": "px-2.5 py-0.5 rounded-full text-xs font-medium border"
+    },
+    "inputs": {
+      "base": "bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all",
+      "search": "pl-9"
+    }
+  },
+  "grids": {
+    "dashboard_kpi": "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6",
+    "dashboard_main": "grid grid-cols-1 lg:grid-cols-3 gap-6",
+    "bento_spacing": "Always use gap-6 for dashboard layouts. Use generous padding inside widgets (p-6)."
+  },
+  "layouts": {
+    "app_shell": "flex h-screen bg-slate-50 overflow-hidden",
+    "sidebar": "w-64 flex-shrink-0 bg-slate-900 text-slate-300 flex flex-col border-r border-slate-800 hidden md:flex",
+    "main_content": "flex-1 flex flex-col overflow-hidden",
+    "header": "h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 sticky top-0 z-10",
+    "page_content": "flex-1 overflow-y-auto p-6 lg:p-8 space-y-6"
+  },
+  "motion": {
+    "transitions": "Use specific transitions. e.g., 'transition-colors duration-200 ease-in-out', 'transition-transform duration-200 active:scale-95'. Avoid 'transition-all' for complex components.",
+    "hover_states": "All interactive elements must have a defined hover state (darker bg or slightly elevated shadow).",
+    "list_animations": "Stagger entrance for data table rows or KPI cards using framer-motion if possible, else simple CSS fade-in."
+  },
+  "accessibility": {
+    "contrast": "Ensure text contrast meets APCA/WCAG standards. Do not use gray-on-gray.",
+    "focus": "focus:outline-none focus:ring-2 focus:ring-slate-400 focus:ring-offset-2",
+    "testing_attributes": "All interactive and key informational elements MUST include a data-testid attribute in kebab-case."
+  },
+  "media": {
+    "icons": "Use @phosphor-icons/react or lucide-react. Prefer clean, professional icon styles. Avoid AI emojis.",
+    "charts": "Use Recharts or Shadcn charts for performance dashboard. Use distinct colors for sectors and funnel stages."
+  },
+  "3d_libraries": {
+    "usage": "Not recommended for this specific CRM dashboard as maximum legibility and speed are the priorities. Rely on 2D charts (Recharts)."
+  },
+  "image_urls": {
+    "avatars": [
+      {
+        "url": "https://images.pexels.com/photos/20157010/pexels-photo-20157010.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "description": "Elegant portrait of a young male professional for contact/user profile.",
+        "category": "contact_avatar"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1514960919797-5ff58c52e5ba?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NzZ8MHwxfHNlYXJjaHw0fHxwcm9mZXNzaW9uYWwlMjBhdmF0YXIlMjBwb3J0cmFpdHxlbnwwfHx8fDE3ODQ3Njk4NDN8MA&ixlib=rb-4.1.0&q=85",
+        "description": "Professional female portrait for contact/user profile.",
+        "category": "contact_avatar"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "You are building PROSPECTIA, a premium SaaS AI-powered B2B sales prospecting CRM in French.",
+    "Implement a fixed sidebar on desktop and mobile-adapted navigation. Sidebar background is slate-900 (Midnight Blue).",
+    "Use Shadcn UI components but customize them to match the clean, slightly rounded (8px radius) style.",
+    "Build the dashboard with KPI stat cards, charts (funnel, status, sector), and 'Actions prioritaires aujourd'hui'.",
+    "Implement complex data tables for Prospects and Contacts with filters, search, bulk actions, and status badges using the exact colors provided in the guidelines.",
+    "Create the AI digital analysis view and prospect scoring detail (score /100 with breakdown).",
+    "Build an AI email generation editor with variants, and a human validation queue layout.",
+    "Ensure all text is in French as requested.",
+    "Never use fully transparent backgrounds for headers or dropdowns.",
+    "Do not center-align app containers; use standard left-aligned data layouts.",
+    "Do not use generic 'Inter' for headings. Use Manrope for headings and IBM Plex Sans for body.",
+    "Use standard Recharts for the KPI dashboard charts.",
+    "Install standard dependencies: @phosphor-icons/react or lucide-react, recharts, framer-motion, sonner."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. Avoid the 'AI slop' aesthetic. Make creative, distinctive frontends.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy.",
+    "You MUST NOT apply universal transition (e.g. transition: all). Always add transitions for specific interactive elements.",
+    "You MUST NOT center align the app container, i.e., do not add .App { text-align: center; }.",
+    "Always use modern button styles with interaction animations.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 etc for icons.",
+    "Every interaction needs micro-animations - hover states, transitions, and entrance animations.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Prioritize using pre-existing components from src/components/ui when applicable.",
+    "Use 'sonner' for toasts.",
+    "All interactive and key informational elements MUST include a data-testid attribute for testing."
+  ]
+}
