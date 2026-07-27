@@ -9,6 +9,7 @@ import logging
 import io
 import csv
 import re
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Any
 
@@ -1072,6 +1073,53 @@ async def discovery_validate(body: ValidateCandidateIn, user: dict = Depends(get
     return {"ok": True, "action": "accept", "company_id": doc["id"]}
 
 
+# ---------- RGPD : purge des fiches Discovery non validées après 90 jours ----------
+DISCOVERY_RETENTION_DAYS = 90
+
+async def purge_stale_discovery():
+    """RGPD : supprime les fiches Discovery NON validées (jamais transformées en entreprise CRM) après 90 jours.
+    Les candidats validés (dans mission['validated'], déjà présents en CRM) sont conservés pour la traçabilité."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=DISCOVERY_RETENTION_DAYS)).isoformat()
+    stats = {"missions_deleted": 0, "missions_trimmed": 0, "candidates_removed": 0,
+             "retention_days": DISCOVERY_RETENTION_DAYS, "cutoff": cutoff}
+    old = await db.discovery_missions.find({"created_at": {"$lt": cutoff}}).to_list(10000)
+    for m in old:
+        validated = set(m.get("validated") or [])
+        candidates = m.get("candidates") or []
+        kept = [c for c in candidates if c.get("siren") in validated]
+        removed = len(candidates) - len(kept)
+        if not validated:
+            await db.discovery_missions.delete_one({"id": m["id"]})
+            stats["missions_deleted"] += 1
+            stats["candidates_removed"] += removed
+        elif removed > 0:
+            await db.discovery_missions.update_one(
+                {"id": m["id"]},
+                {"$set": {"candidates": kept, "status": "Purgé (RGPD 90j) — fiches non validées supprimées",
+                          "purged_at": now_iso()}})
+            stats["missions_trimmed"] += 1
+            stats["candidates_removed"] += removed
+    if stats["missions_deleted"] or stats["missions_trimmed"]:
+        logger.info(f"Purge RGPD Discovery: {stats}")
+        await log_activity("Purge RGPD Discovery (90j)", "système",
+                           detail=f"{stats['missions_deleted']} mission(s) supprimée(s), "
+                                  f"{stats['candidates_removed']} fiche(s) non validée(s) purgée(s)", auto=True)
+    return stats
+
+async def _purge_loop():
+    while True:
+        try:
+            await purge_stale_discovery()
+        except Exception as e:
+            logger.error(f"Purge loop error: {e}")
+        await asyncio.sleep(24 * 3600)
+
+@api.post("/discovery/purge")
+async def discovery_purge(user: dict = Depends(get_current_user)):
+    """Déclenchement manuel de la purge RGPD 90 jours (admin)."""
+    return await purge_stale_discovery()
+
+
 # ---------- Demo data ----------
 @api.post("/demo/seed")
 async def seed_demo(user: dict = Depends(get_current_user)):
@@ -1173,6 +1221,8 @@ async def startup():
             await db.templates.insert_one({"id": new_id(), **t})
     if not await db.settings.find_one({"id": "global"}):
         await db.settings.insert_one({"id": "global", **seed_data.DEFAULT_SETTINGS})
+    # RGPD : purge périodique des fiches Discovery non validées (90 jours)
+    asyncio.create_task(_purge_loop())
 
 
 @app.on_event("shutdown")

@@ -37,5 +37,10 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - Nouvelle structure : chaque critère = `{label, pts, max, status(ok/ko/neutral), note}` ; `_score()` renvoie `total` + `max_total` (exclut neutres). `Discovery.jsx` affiche `total/max_total`, couleurs en %, notes par critère, fourchette dans la carte d'interprétation (interp-size-range).
 - Testé : iteration_9.json — backend 8/8, frontend 2/2, aucun bug.
 
+## Purge RGPD 90j + tests variés Discovery (2026-07-27)
+- **Purge RGPD (P1 fait)** : `purge_stale_discovery()` supprime les fiches Discovery non validées après 90 jours. Mission > 90j sans aucun candidat validé → supprimée ; mission avec candidats validés → les fiches non validées sont retirées, statut « Purgé (RGPD 90j) ». Tâche `asyncio` quotidienne lancée au startup + endpoint manuel `POST /api/discovery/purge` (admin). Testé e2e (curl) : 1 supprimée, 1 nettoyée, fiche récente préservée. Note RGPD affichée dans l'historique frontend.
+- **Tests variés (P1 fait)** : interprétation validée sur avocats/communication/logiciels/conseil/architectes/RH ; tailles (1-20, 10-49, moins de 50, plus de 200, entre X et Y) ; indisponibilité Sirene → 0 candidat, `source_unavailable=True`, aucune donnée inventée. Run réel Sirene validé (3 cabinets Paris réels, filtre taille effectif).
+- **Couverture régionale élargie** : ajout `MAJOR_CITIES` (Lyon, Marseille, Bordeaux, Lille, Toulouse, Nantes, Nice, etc.) + détection « département XX » / « (XX) ». Auparavant seule l'Île-de-France était géo-filtrée.
+
 ## Prochaines actions
 Démarrer le schéma « information vérifiable »

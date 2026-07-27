@@ -51,6 +51,13 @@ TRANCHE_EFFECTIF = {
 }
 DEPT_NAMES = {"paris": "75", "seine-et-marne": "77", "yvelines": "78", "essonne": "91",
               "hauts-de-seine": "92", "seine-saint-denis": "93", "val-de-marne": "94", "val-d'oise": "95"}
+# Grandes villes -> code département (filtrage géographique strict par code postal)
+MAJOR_CITIES = {
+    "lyon": "69", "marseille": "13", "bordeaux": "33", "lille": "59", "toulouse": "31",
+    "nantes": "44", "nice": "06", "strasbourg": "67", "rennes": "35", "montpellier": "34",
+    "grenoble": "38", "nancy": "54", "rouen": "76", "reims": "51", "dijon": "21",
+    "brest": "29", "le havre": "76", "clermont-ferrand": "63", "angers": "49", "tours": "37",
+}
 
 
 def _norm(s: str) -> str:
@@ -81,6 +88,17 @@ def interpret_mission(text: str) -> dict:
             if name in t:
                 departements.append(dep)
                 region = name.title()
+    if not departements:
+        for city, dep in MAJOR_CITIES.items():
+            if city in t:
+                departements.append(dep)
+                region = city.title()
+                break
+    if not departements:
+        dm = re.search(r"(?:d[ée]partement|dpt|dép\.?)\s*(\d{2,3})", t) or re.search(r"\((\d{2})\)", t)
+        if dm:
+            departements.append(dm.group(1)[:2])
+            region = f"Département {dm.group(1)[:2]}"
     # fourchette de taille demandée (nécessite un mot "salariés/employés/collaborateurs" pour éviter les faux positifs)
     size_range = None
     unit = r"(?:salari[ée]s?|employ[ée]s?|collaborateurs?|personnes?)"

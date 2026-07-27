@@ -219,7 +219,8 @@ export default function Discovery() {
 
       {!mission && missions.length > 0 && (
         <Card className="p-6">
-          <h3 className="font-heading font-semibold text-slate-800 mb-3">Historique des missions</h3>
+          <h3 className="font-heading font-semibold text-slate-800 mb-1">Historique des missions</h3>
+          <p className="text-xs text-slate-400 mb-3 flex items-center gap-1"><ShieldCheck className="w-3.5 h-3.5" /> RGPD : les fiches non validées sont automatiquement purgées après 90 jours.</p>
           <div className="divide-y divide-slate-100">
             {missions.map((m) => (
               <div key={m.id} className="py-2.5 flex items-center justify-between text-sm" data-testid={`mission-${m.id}`}>
