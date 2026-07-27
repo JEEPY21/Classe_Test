@@ -327,6 +327,73 @@ def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, ex
     }
 
 
+def apply_places_enrichment(cand: dict, places: dict) -> dict:
+    """Applique l'enrichissement Google Places (source secondaire) à une fiche candidat et
+    recalcule les critères site/téléphone + la cohérence multi-sources (désormais vérifiable)."""
+    website = places.get("websiteUri")
+    phone = places.get("nationalPhoneNumber")
+    match = places.get("match") or {}
+    g_name = match.get("name") or ""
+    g_addr = match.get("formattedAddress") or ""
+
+    cand["website"] = website
+    cand["phone"] = phone
+    cand["places"] = {
+        "placeId": match.get("placeId"), "name": g_name, "formattedAddress": g_addr,
+        "endpoint": "https://places.googleapis.com/v1/places:searchText",
+        "collected_at": now_iso(), "source": "Google Places (New)",
+    }
+
+    # --- Cohérence multi-sources (Sirene ↔ Google Places), maintenant réellement vérifiable ---
+    if not match.get("placeId"):
+        coherence_status, coherence_pts = "neutral", 0
+        coherence_note = "Aucune correspondance Google Places trouvée — cohérence non vérifiable"
+        contradictions = []
+    else:
+        name_ratio = SequenceMatcher(None, _norm(cand.get("raison_sociale", "")), _norm(g_name)).ratio()
+        n1 = _norm(cand.get("raison_sociale", ""))
+        n2 = _norm(g_name)
+        name_ok = (name_ratio >= 0.5) or (n1 and n2 and (n1 in n2 or n2 in n1))
+        cp = cand.get("code_postal") or ""
+        cp_ok = bool(cp) and (cp in g_addr)
+        contradictions = []
+        if not name_ok:
+            contradictions.append(f"raison sociale Sirene « {cand.get('raison_sociale')} » ≠ Google « {g_name} »")
+        if cp and not cp_ok:
+            contradictions.append(f"code postal Sirene {cp} absent de l'adresse Google « {g_addr} »")
+        if contradictions:
+            coherence_status, coherence_pts = "ko", 0
+            coherence_note = "Contradiction Sirene/Google : " + " ; ".join(contradictions)
+        else:
+            coherence_status, coherence_pts = "ok", 5
+            coherence_note = f"Cohérent : Sirene ↔ Google Places (nom concordant, code postal {cp} confirmé)"
+
+    cand["contradictions"] = contradictions
+    cand["verification"]["site_officiel"] = website or "Non trouvé via Google Places"
+    cand["verification"]["coordonnees"] = phone or "Téléphone non trouvé via Google Places"
+    cand["verification"]["coherence"] = coherence_note
+
+    conf = cand["scores"]["confidence"]["detail"]
+    conf["site_officiel_confirme"] = _crit("Site officiel confirmé (Google Places)", 10 if website else 0, 10,
+                                           note=None if website else "Non trouvé via Google Places")
+    conf["telephone_email_public"] = _crit("Téléphone ou email public trouvé (Google Places)", 5 if phone else 0, 5,
+                                           note=None if phone else "Non trouvé via Google Places")
+    conf["coherence_sources"] = _crit("Cohérence entre sources (Sirene ↔ Google Places)", coherence_pts, 5,
+                                      status=coherence_status, note=coherence_note)
+    cand["scores"]["confidence"] = _score(conf)
+
+    comp = cand["scores"]["completeness"]["detail"]
+    comp["site_officiel"] = _crit("Site officiel", 15 if website else 0, 15,
+                                  note=None if website else "Non trouvé via Google Places")
+    comp["telephone"] = _crit("Téléphone", 15 if phone else 0, 15,
+                              note=None if phone else "Non trouvé via Google Places")
+    cand["scores"]["completeness"] = _score(comp)
+
+    cand["enriched"] = True
+    cand["enriched_at"] = now_iso()
+    return cand
+
+
 SCORE_LABELS = {
     "entreprise_api_sirene": ("Entreprise trouvée via API Sirene", 25),
     "statut_actif": ("Statut actif confirmé", 15),

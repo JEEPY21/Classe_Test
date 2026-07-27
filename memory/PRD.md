@@ -46,5 +46,14 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - **Ordre (option d retenue)** : non intégré. Affichage « Confirmation Ordre des Experts-Comptables : Non disponible » ajouté (a) sur chaque fiche entreprise via carte « Vérifications externes » (CompanyDetail.jsx, data-testid external-verifications-card / verif-ordre) et (b) dans la traçabilité des candidats Discovery (backend verification.ordre_experts_comptables + Discovery.jsx). Motif documenté : robots.txt du CNOEC interdit /recherche*, contenu sous droit d'auteur, RGPD.
 - **Google Places (recherche, en attente décision)** : modèle par SKU depuis mars 2025 — Essentials 10 000/mois, Pro 5 000/mois, Enterprise 1 000/mois (gratuits). `websiteUri` + `nationalPhoneNumber` = SKU Enterprise → **~1 000 fiches complètes (site+téléphone) gratuites/mois**. Compte de facturation + carte obligatoire même en gratuit ; quota dur recommandé (~900) pour garantir 0 €. Rien intégré.
 
+## Intégration Google Places (New) — enrichissement source secondaire (2026-07-27)
+- **Objectif** : enrichir les fiches Discovery avec site web + téléphone public, activant réellement les critères site/téléphone et la cohérence multi-sources (Sirene ↔ Google).
+- **Backend** : `places_service.lookup_company_place()` (Text Search New + repli Place Details, field mask minimal `websiteUri,nationalPhoneNumber` = SKU Enterprise, langue fr / région FR). `discovery_service.apply_places_enrichment()` recalcule confidence/completeness et la cohérence (ok/ko/neutral selon nom+CP). Endpoint `POST /api/discovery/enrich` {mission_id, siren}.
+- **Maîtrise du coût** : quota dur applicatif mensuel `GOOGLE_PLACES_MONTHLY_CAP=900` (collection `api_usage`), **cache** Mongo (`places_cache`) par nom+adresse normalisés (ré-enrichissement gratuit), endpoint `GET /api/places/usage`. Clé en env `GOOGLE_MAPS_API_KEY` (jamais côté frontend).
+- **Frontend** (Discovery.jsx) : bouton « Enrichir (Google Places) » / « Ré-enrichir », badge Enrichi, affichage site/téléphone, toast avec quota restant, cohérence + source secondaire dans la traçabilité.
+- **Honnêteté** : email reste 0 (Places ne fournit pas d'email) ; aucune donnée inventée ; si aucune correspondance Google → cohérence neutre « non vérifiable ».
+- **Testé** : run réel Sirene + enrich réel (site/tél récupérés, quota 1/900), chemin cache (0 conso, cohérence ok), UI e2e par capture. Contradiction correctement détectée quand noms/CP divergent.
+- ⚠️ Recommandé côté Google Cloud : poser aussi un **quota dur par méthode** (le budget d'alerte 3 € n'arrête pas l'usage). Le cap applicatif garantit déjà ≤ 900/mois.
+
 ## Prochaines actions
 Démarrer le schéma « information vérifiable »

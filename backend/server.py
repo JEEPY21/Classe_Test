@@ -26,6 +26,7 @@ import ai_service
 import seed_data
 import import_service
 import discovery_service
+import places_service
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1118,6 +1119,75 @@ async def _purge_loop():
 async def discovery_purge(user: dict = Depends(get_current_user)):
     """Déclenchement manuel de la purge RGPD 90 jours (admin)."""
     return await purge_stale_discovery()
+
+
+# ---------- Google Places : enrichissement (source secondaire) + quota dur mensuel ----------
+PLACES_MONTHLY_CAP = int(os.environ.get("GOOGLE_PLACES_MONTHLY_CAP", "900"))
+
+async def _places_usage(month: str) -> int:
+    doc = await db.api_usage.find_one({"service": "google_places", "month": month})
+    return (doc or {}).get("count", 0)
+
+async def _places_add(month: str, calls: int):
+    await db.api_usage.update_one(
+        {"service": "google_places", "month": month},
+        {"$inc": {"count": calls}, "$setOnInsert": {"service": "google_places", "month": month}},
+        upsert=True)
+
+@api.get("/places/usage")
+async def places_usage(user: dict = Depends(get_current_user)):
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+    used = await _places_usage(month)
+    return {"month": month, "used": used, "cap": PLACES_MONTHLY_CAP, "remaining": max(0, PLACES_MONTHLY_CAP - used),
+            "configured": bool(os.environ.get("GOOGLE_MAPS_API_KEY"))}
+
+class PlacesEnrichIn(BaseModel):
+    mission_id: str
+    siren: str
+
+@api.post("/discovery/enrich")
+async def discovery_enrich(body: PlacesEnrichIn, user: dict = Depends(get_current_user)):
+    """Enrichit une fiche candidat via Google Places (site + téléphone), avec cache et quota dur mensuel."""
+    mission = await db.discovery_missions.find_one({"id": body.mission_id})
+    if not mission:
+        raise HTTPException(404, "Mission introuvable")
+    cand = next((c for c in mission.get("candidates", []) if c.get("siren") == body.siren), None)
+    if not cand:
+        raise HTTPException(404, "Candidat introuvable")
+
+    company_name = cand.get("raison_sociale") or ""
+    address = " ".join([x for x in [cand.get("adresse"), cand.get("code_postal"), cand.get("commune")] if x])
+    key = f"{company_name.strip().lower()}|{address.strip().lower()}"
+    month = datetime.now(timezone.utc).strftime("%Y-%m")
+
+    cached = await db.places_cache.find_one({"cache_key": key}, {"_id": 0})
+    if cached:
+        places = cached["data"]
+        source = "cache"
+    else:
+        used = await _places_usage(month)
+        if used >= PLACES_MONTHLY_CAP:
+            raise HTTPException(429, f"Quota mensuel Google Places atteint ({PLACES_MONTHLY_CAP}). "
+                                     f"Enrichissement suspendu jusqu'au mois prochain.")
+        try:
+            places, calls = await places_service.lookup_company_place(company_name, address)
+        except Exception as e:
+            await log_error("Google Places indisponible", str(e), body.mission_id, "Réessayer plus tard")
+            raise HTTPException(502, f"Google Places indisponible : {type(e).__name__}")
+        await _places_add(month, calls)
+        await db.places_cache.update_one({"cache_key": key},
+            {"$set": {"cache_key": key, "data": places, "updated_at": now_iso()}}, upsert=True)
+        source = "google"
+
+    updated = discovery_service.apply_places_enrichment(cand, places)
+    cands = [updated if c.get("siren") == body.siren else c for c in mission["candidates"]]
+    await db.discovery_missions.update_one({"id": body.mission_id}, {"$set": {"candidates": cands}})
+    await log_activity("Enrichissement Google Places", "discovery", body.mission_id,
+                       new_state=company_name, detail=f"site={'oui' if updated.get('website') else 'non'}, "
+                       f"tél={'oui' if updated.get('phone') else 'non'}", auto=False)
+    used_after = await _places_usage(month)
+    return {"candidate": clean(updated), "source": source,
+            "usage": {"used": used_after, "cap": PLACES_MONTHLY_CAP, "remaining": max(0, PLACES_MONTHLY_CAP - used_after)}}
 
 
 # ---------- Demo data ----------

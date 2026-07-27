@@ -4,7 +4,7 @@ import { PageHeader, Card, Btn, Loading, Empty, Input, Textarea } from "@/compon
 import { toast } from "sonner";
 import {
   Radar, Sparkles, Loader2, MapPin, Building2, Check, X, ChevronDown, ChevronUp,
-  ShieldCheck, AlertTriangle, Database, FileSearch, Info
+  ShieldCheck, AlertTriangle, Database, FileSearch, Info, Globe, Phone, Wand2
 } from "lucide-react";
 
 const ScoreRing = ({ label, value, max, color }) => (
@@ -14,7 +14,7 @@ const ScoreRing = ({ label, value, max, color }) => (
   </div>
 );
 
-function CandidateCard({ mission, cand, labels, onValidate, done }) {
+function CandidateCard({ mission, cand, labels, onValidate, onEnrich, enriching, done }) {
   const [open, setOpen] = useState(false);
   const s = cand.scores;
   const pct = (t) => (t.max_total ? Math.round((t.total / t.max_total) * 100) : 0);
@@ -27,12 +27,15 @@ function CandidateCard({ mission, cand, labels, onValidate, done }) {
             <span className="font-heading font-semibold text-slate-800">{cand.raison_sociale}</span>
             {cand.is_adjacent && <span className="text-[10px] px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 border border-violet-200">Cible adjacente pertinente</span>}
             {cand.is_duplicate && <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500">Déjà en base</span>}
+            {cand.enriched && <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 border border-emerald-200 flex items-center gap-1"><Wand2 className="w-2.5 h-2.5" />Enrichi (Google Places)</span>}
           </div>
           <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-3 gap-y-1">
             <span>SIREN {cand.siren}</span>
             <span>NAF {cand.naf} · {cand.naf_label}</span>
             {cand.commune && <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{cand.code_postal} {cand.commune}</span>}
             <span className="text-emerald-600 flex items-center gap-1"><ShieldCheck className="w-3 h-3" />{cand.verification.statut}</span>
+            {cand.website && <a href={cand.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline" data-testid={`website-${cand.siren}`}><Globe className="w-3 h-3" />Site</a>}
+            {cand.phone && <span className="flex items-center gap-1 text-slate-600" data-testid={`phone-${cand.siren}`}><Phone className="w-3 h-3" />{cand.phone}</span>}
           </div>
         </div>
         <div className="flex items-center gap-4 flex-shrink-0">
@@ -74,12 +77,19 @@ function CandidateCard({ mission, cand, labels, onValidate, done }) {
             Source : {(cand.source || {}).endpoint} · Collecté le {new Date((cand.source || {}).collected_at).toLocaleString("fr-FR")} · Mode {(cand.source || {}).mode}<br />
             Site officiel : {cand.verification.site_officiel} · Coordonnées : {cand.verification.coordonnees}<br />
             Confirmation Ordre des Experts-Comptables : <span className="text-amber-600">{cand.verification.ordre_experts_comptables || "Non disponible — source non exploitable automatiquement"}</span>
+            {cand.verification.coherence && <><br />Cohérence multi-source : <span className={cand.contradictions && cand.contradictions.length ? "text-red-600" : "text-emerald-600"}>{cand.verification.coherence}</span></>}
+            {cand.places && <><br />Source secondaire : {cand.places.source} · {cand.places.formattedAddress} · Collecté le {new Date(cand.places.collected_at).toLocaleString("fr-FR")}</>}
             {cand.dirigeants_count > 0 && <> · {cand.dirigeants_count} dirigeant(s) recensé(s) (RGPD : intérêt légitime B2B)</>}
           </div>
         </div>
       )}
 
       <div className="flex items-center gap-2 mt-4">
+        {done !== "reject" && (
+          <Btn variant="secondary" onClick={() => onEnrich(cand.siren)} disabled={enriching} data-testid={`enrich-${cand.siren}`}>
+            {enriching ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />} {cand.enriched ? "Ré-enrichir" : "Enrichir (Google Places)"}
+          </Btn>
+        )}
         {done === "accept" ? <span className="text-sm text-emerald-600 flex items-center gap-1"><Check className="w-4 h-4" /> Validée et ajoutée au CRM</span>
           : done === "reject" ? <span className="text-sm text-slate-400 flex items-center gap-1"><X className="w-4 h-4" /> Rejetée</span>
           : done === "duplicate" ? <span className="text-sm text-slate-500">Déjà présente en base</span>
@@ -104,6 +114,7 @@ export default function Discovery() {
   const [running, setRunning] = useState(false);
   const [done, setDone] = useState({});
   const [missions, setMissions] = useState([]);
+  const [enriching, setEnriching] = useState({});
 
   useEffect(() => {
     client.get("/discovery/score-labels").then((r) => setLabels(r.data)).catch(() => {});
@@ -138,6 +149,19 @@ export default function Discovery() {
       setDone((d) => ({ ...d, [siren]: data.action }));
       if (action === "accept") toast.success(data.action === "duplicate" ? "Déjà en base (dédup SIREN)" : "Entreprise ajoutée au CRM");
     } catch (e) { toast.error(apiError(e)); }
+  };
+
+  const enrich = async (siren) => {
+    setEnriching((e) => ({ ...e, [siren]: true }));
+    try {
+      const { data } = await client.post("/discovery/enrich", { mission_id: mission.id, siren });
+      setMission((m) => ({ ...m, candidates: m.candidates.map((c) => (c.siren === siren ? data.candidate : c)) }));
+      const u = data.usage || {};
+      const found = data.candidate.website || data.candidate.phone;
+      toast[found ? "success" : "warning"](
+        `${found ? "Enrichi via Google Places" : "Aucune donnée trouvée sur Google Places"} · ${u.remaining}/${u.cap} requête(s) restante(s) ce mois`);
+    } catch (e) { toast.error(apiError(e)); }
+    finally { setEnriching((e) => ({ ...e, [siren]: false })); }
   };
 
   return (
@@ -212,7 +236,7 @@ export default function Discovery() {
           {mission.candidates.length === 0 ? <Card><Empty text="Aucun résultat trouvé pour ces critères." /></Card> :
             <div className="space-y-3">
               {mission.candidates.map((c) => (
-                <CandidateCard key={c.siren} mission={mission} cand={c} labels={labels} onValidate={validate} done={done[c.siren]} />
+                <CandidateCard key={c.siren} mission={mission} cand={c} labels={labels} onValidate={validate} onEnrich={enrich} enriching={enriching[c.siren]} done={done[c.siren]} />
               ))}
             </div>}
         </div>
