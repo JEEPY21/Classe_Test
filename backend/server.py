@@ -994,7 +994,7 @@ def _simulation_candidates(interp):
              "date_creation": "2015-01-01", "nature_juridique": "5499", "tranche_effectif_salarie": "03",
              "siege": {"siret": siren + "00010", "etat_administratif": "A", "adresse": "1 RUE DEMO 75001 PARIS",
                        "code_postal": "75001", "libelle_commune": "PARIS"}, "dirigeants": []},
-            target, interp.get("departements") or [], [], interp.get("adjacent_naf") or [], set()))
+            target, interp.get("departements") or [], [], interp.get("adjacent_naf") or [], set(), interp.get("size_range")))
     meta = {"api_calls": 0, "total_api_results": len(cands), "endpoint": "simulation",
             "timestamp": now_iso(), "source_unavailable": False, "error": None, "simulation": True}
     return cands, meta

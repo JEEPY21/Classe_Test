@@ -1,0 +1,20 @@
+{
+  "summary": "Tests des 2 corrections Discovery scoring (size_range + coherence_sources neutre). Backend: 8/8 tests pytest passés. Frontend: 2 scénarios UI validés (mission AVEC fourchette 1–20 salariés → taille ok 15/15, match 100/100 ; mission SANS fourchette → taille neutre 'Tranche d'effectif renseignée (6–9 salariés)', exclue du dénominateur match 85/85). Dans tous les cas, coherence_sources est neutral avec note 'Non vérifiable — une seule source active (Sirene)' et confiance affichée sur /95. Capture UI confirme : Confiance 80/95, Mission 85/85, ScoreRing utilise bien max_total.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/test_discovery_scoring.py", "/app/test_reports/pytest/discovery_scoring.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "discovery_service.interpret_mission: regex 'de 1 à 20 salariés' fonctionne bien mais 'entre 1 et 20 salariés' n'est PAS détecté (pas d'alternative 'entre X et Y'). À considérer si l'utilisateur teste cette formulation.",
+    "server.py _simulation_candidates: 2 candidats identiques avec tranche 03 fixe — bien pour tester la fourchette, mais on ne peut pas exercer le cas 'tranche non renseignée dans Sirene' (status ko + note 'Tranche d'effectif non renseignée'). Pourrait ajouter un candidat sans tranche pour la couverture.",
+    "Frontend Discovery.jsx: quand match.max_total=85, l'anneau 'MISSION' affiche 85/85 mais visuellement rien ne distingue une note 'partielle car neutre' d'une note pleine sur base réduite. Une info-bulle pourrait clarifier."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "100% (2/2 scénarios)"},
+  "test_credentials": "jp.koffi@prospectia.app / Prospectia2026!",
+  "seed_data_creation": "Aucune donnée persistée (mode simulation uniquement). Note: chaque run crée une mission Discovery en base (missions historique) — non nettoyée car pas d'endpoint DELETE. 4 missions ajoutées à discovery_missions durant les tests UI.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fichier de tests réutilisable: /app/backend/tests/test_discovery_scoring.py (couvre interpret + run mode simulation). Data-testids Discovery: mission-input, interpret-btn, interp-size-range, mode-simulation, run-btn, candidate-<siren>, toggle-detail-<siren>, crit-<siren>-<critkey> (ex: crit-900000001-coherence_sources, crit-900000001-taille). Simulation utilise SIREN 900000001/900000002, tranche_effectif_salarie=03 (6-9 salariés). Confiance max_total figé à 95 (coherence_sources exclu).",
+  "rca of the issue": "Non applicable — les 2 corrections demandées par l'utilisateur sont correctement implémentées."
+}

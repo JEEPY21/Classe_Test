@@ -7,9 +7,9 @@ import {
   ShieldCheck, AlertTriangle, Database, FileSearch, Info
 } from "lucide-react";
 
-const ScoreRing = ({ label, value, color }) => (
+const ScoreRing = ({ label, value, max, color }) => (
   <div className="flex flex-col items-center">
-    <div className={`text-xl font-heading font-bold ${color}`}>{value}</div>
+    <div className={`text-xl font-heading font-bold ${color}`}>{value}<span className="text-xs font-normal text-slate-400">/{max}</span></div>
     <div className="text-[10px] uppercase text-slate-400 tracking-wide">{label}</div>
   </div>
 );
@@ -17,7 +17,8 @@ const ScoreRing = ({ label, value, color }) => (
 function CandidateCard({ mission, cand, labels, onValidate, done }) {
   const [open, setOpen] = useState(false);
   const s = cand.scores;
-  const cColor = (v) => v >= 80 ? "text-emerald-600" : v >= 50 ? "text-amber-600" : "text-slate-500";
+  const pct = (t) => (t.max_total ? Math.round((t.total / t.max_total) * 100) : 0);
+  const cColor = (t) => { const p = pct(t); return p >= 80 ? "text-emerald-600" : p >= 50 ? "text-amber-600" : "text-slate-500"; };
   return (
     <Card className="p-5 animate-fade-in" data-testid={`candidate-${cand.siren}`}>
       <div className="flex items-start justify-between gap-4">
@@ -35,9 +36,9 @@ function CandidateCard({ mission, cand, labels, onValidate, done }) {
           </div>
         </div>
         <div className="flex items-center gap-4 flex-shrink-0">
-          <ScoreRing label="Confiance" value={s.confidence.total} color={cColor(s.confidence.total)} />
-          <ScoreRing label="Mission" value={s.match.total} color={cColor(s.match.total)} />
-          <ScoreRing label="Complétude" value={s.completeness.total} color={cColor(s.completeness.total)} />
+          <ScoreRing label="Confiance" value={s.confidence.total} max={s.confidence.max_total} color={cColor(s.confidence)} />
+          <ScoreRing label="Mission" value={s.match.total} max={s.match.max_total} color={cColor(s.match)} />
+          <ScoreRing label="Complétude" value={s.completeness.total} max={s.completeness.max_total} color={cColor(s.completeness)} />
         </div>
       </div>
 
@@ -49,14 +50,19 @@ function CandidateCard({ mission, cand, labels, onValidate, done }) {
         <div className="mt-3 pt-3 border-t border-slate-100 grid md:grid-cols-3 gap-4 text-xs">
           {[["confidence", "Confiance d'identité"], ["match", "Correspondance mission"], ["completeness", "Complétude"]].map(([k, title]) => (
             <div key={k}>
-              <div className="font-medium text-slate-700 mb-1">{title} — {s[k].total}/100</div>
-              <ul className="space-y-0.5">
-                {Object.entries(s[k].detail).map(([crit, pts]) => {
-                  const meta = labels[crit] || [crit, 0];
+              <div className="font-medium text-slate-700 mb-1">{title} — {s[k].total}/{s[k].max_total}</div>
+              <ul className="space-y-1">
+                {Object.entries(s[k].detail).map(([crit, c]) => {
+                  const neutral = c.status === "neutral";
                   return (
-                    <li key={crit} className="flex items-center justify-between gap-2">
-                      <span className="text-slate-500">{meta[0]}</span>
-                      <span className={pts > 0 ? "text-emerald-600 font-medium" : "text-slate-300"}>{pts}/{meta[1]}</span>
+                    <li key={crit} data-testid={`crit-${cand.siren}-${crit}`}>
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-slate-500">{c.label}</span>
+                        {neutral
+                          ? <span className="text-slate-400 italic whitespace-nowrap">non évalué</span>
+                          : <span className={c.pts > 0 ? "text-emerald-600 font-medium" : "text-slate-300"}>{c.pts}/{c.max}</span>}
+                      </div>
+                      {c.note && <div className={`text-[10px] ${neutral ? "text-amber-600" : "text-slate-400"}`}>{c.note}</div>}
                     </li>
                   );
                 })}
@@ -174,6 +180,10 @@ export default function Discovery() {
             <div>
               <div className="text-xs uppercase text-slate-400 mb-1">Nombre max / Exclusions</div>
               <span className="text-slate-700">Max {interp.max_results} · {interp.exclusions.length ? interp.exclusions.join(", ") : "aucune exclusion"}</span>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-slate-400 mb-1">Fourchette de taille demandée</div>
+              <span className="text-slate-700" data-testid="interp-size-range">{interp.size_range ? `${interp.size_range[0]}–${interp.size_range[1]} salariés` : "Aucune (critère taille non évalué)"}</span>
             </div>
           </div>
           <div className="mt-4">

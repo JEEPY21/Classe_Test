@@ -81,8 +81,25 @@ def interpret_mission(text: str) -> dict:
             if name in t:
                 departements.append(dep)
                 region = name.title()
-    # nombre max
-    m = re.search(r"(?:jusqu['’]?à|jusqua|au maximum|maximum|max|top)\s*(\d{1,3})", t) or re.search(r"\b(\d{1,3})\b", t)
+    # fourchette de taille demandée (nécessite un mot "salariés/employés/collaborateurs" pour éviter les faux positifs)
+    size_range = None
+    unit = r"(?:salari[ée]s?|employ[ée]s?|collaborateurs?|personnes?)"
+    sm = re.search(r"(?:de\s+)?(\d{1,6})\s*(?:à|a|-|au?)\s*(\d{1,6})\s*" + unit, t)
+    if sm:
+        lo, hi = int(sm.group(1)), int(sm.group(2))
+        size_range = (min(lo, hi), max(lo, hi))
+    else:
+        sm2 = re.search(r"(?:moins de|jusqu['’]?à|au maximum|maximum|max)\s*(\d{1,6})\s*" + unit, t)
+        sm3 = re.search(r"(?:plus de|au moins|à partir de|minimum)\s*(\d{1,6})\s*" + unit, t)
+        if sm2:
+            size_range = (0, int(sm2.group(1)))
+        elif sm3:
+            size_range = (int(sm3.group(1)), 1000000)
+
+    # nombre max (exige un mot-clé explicite ou un nom d'entité pour ne pas confondre avec la taille)
+    m = re.search(r"(?:jusqu['’]?à|jusqua|au maximum|maximum|max|top)\s*(\d{1,3})", t)
+    if not m:
+        m = re.search(r"(\d{1,3})\s*(?:entreprises?|cabinets?|soci[ée]t[ée]s?|structures?|prospects?|r[ée]sultats?|contacts?)", t)
     max_results = min(int(m.group(1)), MAX_RESULTS) if m else MAX_RESULTS
     # exclusions
     exclusions = []
@@ -101,7 +118,7 @@ def interpret_mission(text: str) -> dict:
         "region": region,
         "max_results": max_results,
         "exclusions": exclusions,
-        "size_range": None,
+        "size_range": list(size_range) if size_range else None,
         "recognized": bool(naf_codes),
     }
 
@@ -121,6 +138,7 @@ async def search_companies(interp: dict, exclusion_sirens: set):
     max_results = min(interp.get("max_results") or MAX_RESULTS, MAX_RESULTS)
     exclusions = [_norm(e) for e in (interp.get("exclusions") or [])]
     adjacent = interp.get("adjacent_naf") or []
+    size_range = interp.get("size_range")
 
     if not target_naf:
         return [], {"error": "Aucun code NAF reconnu — précisez le secteur ou saisissez un code NAF."}
@@ -149,7 +167,7 @@ async def search_companies(interp: dict, exclusion_sirens: set):
                     if not siren or siren in seen_sirens:
                         continue
                     seen_sirens.add(siren)
-                    cand = _build_candidate(e, target_naf, departements, exclusions, adjacent, exclusion_sirens)
+                    cand = _build_candidate(e, target_naf, departements, exclusions, adjacent, exclusion_sirens, size_range)
                     # Filtre géographique STRICT côté client : l'API 'departement' n'est qu'un tri, pas un filtre dur
                     if departements:
                         cp = cand.get("code_postal") or ""
@@ -168,7 +186,20 @@ async def search_companies(interp: dict, exclusion_sirens: set):
     return candidates, meta
 
 
-def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, exclusion_sirens):
+def _crit(label, pts, mx, status=None, note=None):
+    """Critère de score traçable. status: ok | ko | neutral (exclu du dénominateur)."""
+    if status is None:
+        status = "ok" if pts >= mx and mx > 0 else "ko"
+    return {"label": label, "pts": pts, "max": mx, "status": status, "note": note}
+
+
+def _score(crits: dict):
+    earned = sum(c["pts"] for c in crits.values())
+    possible = sum(c["max"] for c in crits.values() if c["status"] != "neutral")
+    return {"total": earned, "max_total": possible, "detail": crits}
+
+
+def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, exclusion_sirens, size_range=None):
     siege = e.get("siege") or {}
     siren = e.get("siren")
     siret = siege.get("siret")
@@ -192,39 +223,63 @@ def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, ex
     address_complete = bool(adresse and cp)
     excl_triggered = any(x in _norm(nom_complet) or x in _norm(naf or "") for x in exclusions)
 
-    contradictions = []  # source unique (Sirene) : aucune contradiction inter-sources à ce stade
+    contradictions = []  # source unique (Sirene) : aucune détection de contradiction inter-sources possible
 
-    # --- SCORE CONFIANCE (table figée /100) ---
+    # --- SCORE CONFIANCE (table figée) ---
     conf = {}
-    conf["entreprise_api_sirene"] = 25 if identity_ok else 0
-    conf["statut_actif"] = 15 if status_active else 0
-    conf["raison_sociale_concordante"] = 10 if (name_ratio >= 0.9 or _norm(raison) in _norm(nom_complet)) else 0
-    conf["code_naf_concordant"] = 20 if activity_exact else 0
-    conf["adresse_confirmee"] = 10 if address_complete else 0
-    conf["site_officiel_confirme"] = 0   # non disponible sans source secondaire
-    conf["telephone_email_public"] = 0   # non disponible via cette API
-    conf["aucune_contradiction"] = 5 if not contradictions else 0
-    confidence_score = sum(conf.values()) - 10 * len(contradictions)
-    confidence_score = max(0, min(100, confidence_score))
+    conf["entreprise_api_sirene"] = _crit("Entreprise trouvée via API Sirene", 25 if identity_ok else 0, 25)
+    conf["statut_actif"] = _crit("Statut actif confirmé", 15 if status_active else 0, 15)
+    conf["raison_sociale_concordante"] = _crit(
+        "Raison sociale concordante",
+        10 if (name_ratio >= 0.9 or _norm(raison) in _norm(nom_complet)) else 0, 10)
+    conf["code_naf_concordant"] = _crit("Code NAF concordant avec la mission", 20 if activity_exact else 0, 20)
+    conf["adresse_confirmee"] = _crit("Adresse confirmée (Sirene)", 10 if address_complete else 0, 10)
+    conf["site_officiel_confirme"] = _crit(
+        "Site officiel confirmé", 0, 10, note="Source secondaire non intégrée (non disponible via Sirene)")
+    conf["telephone_email_public"] = _crit(
+        "Téléphone ou email public trouvé", 0, 5, note="Non disponible via Sirene")
+    conf["coherence_sources"] = _crit(
+        "Cohérence entre sources", 0, 5, status="neutral",
+        note="Non vérifiable — une seule source active (Sirene)")
 
-    # --- SCORE CORRESPONDANCE MISSION (table figée /100) ---
+    # --- SCORE CORRESPONDANCE MISSION (table figée) ---
+    tranche_bounds = TRANCHE_EFFECTIF.get(tranche) if tranche else None
+    tranche_txt = (f"{tranche_bounds[0]}–{tranche_bounds[1]} salariés" if tranche_bounds
+                   else "tranche non renseignée")
+    if size_range:
+        lo, hi = int(size_range[0]), int(size_range[1])
+        rng_txt = f"{lo}–{hi} salariés"
+        if tranche_bounds:
+            tlo, thi = tranche_bounds
+            in_range = (tlo <= hi and thi >= lo)
+            size_crit = _crit(
+                f"Taille dans la fourchette souhaitée ({rng_txt})",
+                15 if in_range else 0, 15,
+                note=None if in_range else f"Tranche Sirene {tranche_txt} hors fourchette demandée")
+        else:
+            size_crit = _crit(
+                f"Taille dans la fourchette souhaitée ({rng_txt})", 0, 15,
+                note="Tranche d'effectif non renseignée dans Sirene — non comparable")
+    else:
+        size_crit = _crit(
+            f"Tranche d'effectif renseignée ({tranche_txt})", 0, 15, status="neutral",
+            note="Aucune fourchette de taille demandée dans la mission — critère non évalué")
+
     match = {}
-    match["code_naf_cible"] = 40 if activity_exact else 0
-    match["localisation"] = 30 if dep_ok else 0
-    match["taille"] = 15 if tranche else 0  # aucune fourchette imposée -> critère non bloquant
-    match["aucune_exclusion"] = 15 if not excl_triggered else 0
-    match_score = sum(match.values())
+    match["code_naf_cible"] = _crit("Code NAF = code cible exact", 40 if activity_exact else 0, 40)
+    match["localisation"] = _crit("Localisation dans le périmètre demandé", 30 if dep_ok else 0, 30)
+    match["taille"] = size_crit
+    match["aucune_exclusion"] = _crit("Aucune exclusion déclenchée", 15 if not excl_triggered else 0, 15)
 
-    # --- SCORE COMPLÉTUDE (table figée /100) ---
+    # --- SCORE COMPLÉTUDE (table figée) ---
     comp = {}
-    comp["siren_siret"] = 20 if (siren and siret) else 0
-    comp["adresse_complete"] = 15 if address_complete else 0
-    comp["site_officiel"] = 0
-    comp["telephone"] = 0
-    comp["email"] = 0
-    comp["code_naf"] = 10 if naf else 0
-    comp["date_creation"] = 10 if date_creation else 0
-    completeness_score = sum(comp.values())
+    comp["siren_siret"] = _crit("SIREN/SIRET", 20 if (siren and siret) else 0, 20)
+    comp["adresse_complete"] = _crit("Adresse complète", 15 if address_complete else 0, 15)
+    comp["site_officiel"] = _crit("Site officiel", 0, 15, note="Non disponible via Sirene")
+    comp["telephone"] = _crit("Téléphone", 0, 15, note="Non disponible via Sirene")
+    comp["email"] = _crit("Email", 0, 15, note="Non disponible via Sirene")
+    comp["code_naf"] = _crit("Code NAF", 10 if naf else 0, 10)
+    comp["date_creation"] = _crit("Date de création", 10 if date_creation else 0, 10)
 
     return {
         "siren": siren, "siret": siret, "raison_sociale": raison, "nom_complet": nom_complet,
@@ -245,9 +300,9 @@ def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, ex
             "coordonnees": "Non disponibles via Sirene",
         },
         "scores": {
-            "confidence": {"total": confidence_score, "detail": conf},
-            "match": {"total": match_score, "detail": match},
-            "completeness": {"total": completeness_score, "detail": comp},
+            "confidence": _score(conf),
+            "match": _score(match),
+            "completeness": _score(comp),
         },
         "source": {"endpoint": API_URL, "collected_at": now_iso(), "mode": "réel"},
     }
