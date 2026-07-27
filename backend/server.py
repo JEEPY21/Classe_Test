@@ -24,6 +24,7 @@ from pydantic import BaseModel, Field
 import ai_service
 import seed_data
 import import_service
+import discovery_service
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -934,6 +935,141 @@ async def dashboard(include_demo: bool = False, user: dict = Depends(get_current
         "priority": priority,
         "demo_count": demo_count,
     }
+
+
+# ---------- Discovery Agent V1 ----------
+class InterpretIn(BaseModel):
+    mission_text: str
+
+@api.post("/discovery/interpret")
+async def discovery_interpret(body: InterpretIn, user: dict = Depends(get_current_user)):
+    """Étape 1 — Compréhension de la mission (NAF visibles et corrigeables). Aucun appel API à ce stade."""
+    return discovery_service.interpret_mission(body.mission_text)
+
+
+class RunIn(BaseModel):
+    interpretation: dict
+    mode: str = "real"  # real | simulation
+
+@api.post("/discovery/run")
+async def discovery_run(body: RunIn, user: dict = Depends(get_current_user)):
+    interp = body.interpretation
+    if not interp.get("naf_codes"):
+        raise HTTPException(400, "Aucun code NAF défini — corrigez l'interprétation de la mission.")
+    opposed = await db.exclusions.find({"siren": {"$ne": None}}, {"_id": 0, "siren": 1}).to_list(5000)
+    opposed_sirens = {x["siren"] for x in opposed if x.get("siren")}
+    existing = await db.companies.find({"siren": {"$exists": True, "$ne": None}}, {"_id": 0, "siren": 1}).to_list(10000)
+    existing_sirens = {c["siren"] for c in existing if c.get("siren")}
+    dedup_ref = opposed_sirens | existing_sirens
+
+    mission_id = new_id()
+    if body.mode == "simulation":
+        candidates, meta = _simulation_candidates(interp)
+    else:
+        candidates, meta = await discovery_service.search_companies(interp, dedup_ref)
+
+    candidates = [c for c in candidates if c.get("siren") not in opposed_sirens]
+
+    if meta.get("source_unavailable"):
+        await log_error("API indisponible", meta.get("error", "Source Sirene indisponible"), mission_id,
+                        "Réessayer plus tard — aucune donnée générée par défaut")
+
+    mission = {"id": mission_id, "mission_text": interp.get("mission_text"), "interpretation": interp,
+               "mode": body.mode, "candidates": candidates, "meta": meta,
+               "validated": [], "rejected": [], "status": "À valider",
+               "user": user.get("name"), "created_at": now_iso()}
+    await db.discovery_missions.insert_one(mission)
+    await log_activity("Mission Discovery lancée", "discovery", mission_id,
+                       detail=f"{len(candidates)} candidat(s), {meta.get('api_calls',0)} appels API")
+    return clean(mission)
+
+
+def _simulation_candidates(interp):
+    target = (interp.get("naf_codes") or ["69.20Z"])[0]
+    sample = [("SIMULATION Cabinet Démo 1", "900000001"), ("SIMULATION Cabinet Démo 2", "900000002")]
+    cands = []
+    for name, siren in sample:
+        cands.append(discovery_service._build_candidate(
+            {"siren": siren, "nom_raison_sociale": name, "nom_complet": name, "activite_principale": target,
+             "date_creation": "2015-01-01", "nature_juridique": "5499", "tranche_effectif_salarie": "03",
+             "siege": {"siret": siren + "00010", "etat_administratif": "A", "adresse": "1 RUE DEMO 75001 PARIS",
+                       "code_postal": "75001", "libelle_commune": "PARIS"}, "dirigeants": []},
+            target, interp.get("departements") or [], [], interp.get("adjacent_naf") or [], set()))
+    meta = {"api_calls": 0, "total_api_results": len(cands), "endpoint": "simulation",
+            "timestamp": now_iso(), "source_unavailable": False, "error": None, "simulation": True}
+    return cands, meta
+
+
+@api.get("/discovery/missions")
+async def discovery_missions(user: dict = Depends(get_current_user)):
+    docs = await db.discovery_missions.find({}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    out = []
+    for d in docs:
+        out.append({"id": d["id"], "mission_text": d.get("mission_text"), "mode": d.get("mode"),
+                    "status": d.get("status"), "created_at": d.get("created_at"),
+                    "candidate_count": len(d.get("candidates", [])),
+                    "validated_count": len(d.get("validated", [])),
+                    "meta": d.get("meta")})
+    return out
+
+@api.get("/discovery/missions/{mid}")
+async def discovery_mission(mid: str, user: dict = Depends(get_current_user)):
+    doc = await db.discovery_missions.find_one({"id": mid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Mission introuvable")
+    return doc
+
+@api.get("/discovery/score-labels")
+async def discovery_score_labels(user: dict = Depends(get_current_user)):
+    return discovery_service.SCORE_LABELS
+
+
+class ValidateCandidateIn(BaseModel):
+    mission_id: str
+    siren: str
+    action: str  # accept | reject
+    corrections: dict = {}
+
+@api.post("/discovery/validate")
+async def discovery_validate(body: ValidateCandidateIn, user: dict = Depends(get_current_user)):
+    """Validation humaine 100% : accepter crée l'entreprise en CRM (dédup SIREN), rejeter la met de côté."""
+    mission = await db.discovery_missions.find_one({"id": body.mission_id}, {"_id": 0})
+    if not mission:
+        raise HTTPException(404, "Mission introuvable")
+    cand = next((c for c in mission.get("candidates", []) if c.get("siren") == body.siren), None)
+    if not cand:
+        raise HTTPException(404, "Candidat introuvable")
+
+    if body.action == "reject":
+        await db.discovery_missions.update_one({"id": body.mission_id}, {"$addToSet": {"rejected": body.siren}})
+        await log_activity("Candidat Discovery rejeté", "discovery", body.mission_id, new_state=cand.get("raison_sociale"))
+        return {"ok": True, "action": "reject"}
+
+    dup = await db.companies.find_one({"siren": body.siren}, {"_id": 0})
+    if dup:
+        await db.discovery_missions.update_one({"id": body.mission_id}, {"$addToSet": {"validated": body.siren}})
+        return {"ok": True, "action": "duplicate", "company_id": dup["id"]}
+
+    c = {**cand, **(body.corrections or {})}
+    doc = {"id": new_id(), "name": c.get("raison_sociale"), "legal_name": c.get("raison_sociale"),
+           "sector": c.get("naf_label") or "", "sub_sector": c.get("naf"),
+           "address": c.get("adresse") or "", "city": c.get("commune") or "", "postal_code": c.get("code_postal") or "",
+           "region": mission["interpretation"].get("region") or "", "country": "France",
+           "website": c.get("website") or "", "generic_email": c.get("email") or "", "phone": c.get("phone") or "",
+           "siren": c.get("siren"), "siret": c.get("siret"), "naf_code": c.get("naf"),
+           "founded_year": (c.get("date_creation") or "")[:4],
+           "source": "Discovery Agent (API Sirene)", "source_endpoint": (c.get("source") or {}).get("endpoint"),
+           "status": "Qualifié" if not c.get("is_adjacent") else "À qualifier",
+           "tags": ["discovery"] + (["cible adjacente"] if c.get("is_adjacent") else []),
+           "discovery_scores": c.get("scores"), "discovery_verification": c.get("verification"),
+           "collected_at": (c.get("source") or {}).get("collected_at"),
+           "opposition_rgpd": False, "score": None, "analysis": None, "score_detail": None,
+           "is_demo": False, "created_at": now_iso(), "updated_at": now_iso()}
+    await db.companies.insert_one(doc)
+    await db.discovery_missions.update_one({"id": body.mission_id}, {"$addToSet": {"validated": body.siren}})
+    await log_activity("Entreprise validée depuis Discovery", "entreprise", doc["id"],
+                       new_state=doc["name"], detail=f"SIREN {c.get('siren')}")
+    return {"ok": True, "action": "accept", "company_id": doc["id"]}
 
 
 # ---------- Demo data ----------

@@ -6,6 +6,7 @@ import Layout from "@/components/Layout";
 import { Loading } from "@/components/kit";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import Discovery from "@/pages/Discovery";
 import Companies from "@/pages/Companies";
 import CompanyDetail from "@/pages/CompanyDetail";
 import Contacts from "@/pages/Contacts";
@@ -30,7 +31,7 @@ function Protected({ children }) {
 }
 
 const routes = [
-  ["/", <Dashboard />], ["/entreprises", <Companies />], ["/entreprises/:id", <CompanyDetail />],
+  ["/", <Dashboard />], ["/discovery", <Discovery />], ["/entreprises", <Companies />], ["/entreprises/:id", <CompanyDetail />],
   ["/contacts", <Contacts />], ["/validation", <Validation />], ["/campagnes", <Campaigns />],
   ["/emails", <Emails />], ["/relances", <Followups />], ["/reponses", <Replies />],
   ["/opportunites", <Opportunities />], ["/services", <Services />], ["/modeles", <Templates />],

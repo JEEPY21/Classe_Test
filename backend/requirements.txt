@@ -6,6 +6,7 @@ email-validator>=2.2.0
 emergentintegrations==0.2.0
 fastapi==0.110.1
 flake8>=7.0.0
+httpx==0.28.1
 isort>=5.13.2
 jq>=1.6.0
 motor==3.3.1

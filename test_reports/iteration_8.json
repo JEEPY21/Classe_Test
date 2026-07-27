@@ -1,0 +1,32 @@
+{
+  "summary": "End-to-end UI validation of Discovery Agent V1 (real Sirene API). All 8 review scenarios pass after fixing a testability bug in the shared Card component. Verified: (1) nav-discovery → mission-input pre-filled; interpret-btn produces interpretation-card with NAF 69.20Z (Activités comptables), 'Île-de-France · 8 département(s)', adjacent NAF 70.22Z/69.10Z/66.19B, 'Max 10 · aucune exclusion'. (2) mode-real is default; run-btn triggers real Sirene call and after ~5-10s renders 10 candidate cards (data-testid=candidate-<siren>) with raison sociale, SIREN, NAF 69.20Z, code postal+commune, 'Actif', 3 score rings (Confiance 85 / Mission 100 / Complétude 55). API-calls counter is displayed. (3) toggle-detail-<siren> expands ligne-par-ligne detail for the 3 score tables plus Traçabilité block showing endpoint recherche-entreprises.api.gouv.fr, collected_at, mode; verifies 'Non trouvé (source secondaire indisponible)' + 'Non disponibles via Sirene' — no fabricated data. (4) accept-<siren> flips card to 'Validée et ajoutée au CRM'; the entreprise appears on /entreprises with source 'Discovery Agent (API Sirene)'. (5) Dedup: re-running same mission shows 'Déjà en base' badge pre-emptively, and re-accepting returns duplicate → card displays 'Déjà en base'/'Déjà présente en base'. (6) reject-<siren> flips card to 'Rejetée'. (7) mode-simulation → candidates prefixed with 'SIMULATION Cabinet Démo' (SIMULATION marker present in body). (8) After reload with no active mission, historique des missions renders 3 entries (data-testid=mission-<id>).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "components/kit.jsx Card", "issue": "Card component did not forward props/data-testid to its root <div>, breaking any data-testid placed on Card (interpretation-card, candidate-<siren>, historique cards, and virtually every card in the app). Fixed by adding {...props} spread. Also has downstream test-automation impact across the whole codebase.", "selector": "[data-testid=\"interpretation-card\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_8.json"],
+  "action_items": [
+    "Keep the Card {...props} fix (kit.jsx line 16). It unblocks data-testid attribution across the whole app.",
+    "Consider adding a 'clear-history' or 'Nouvelle mission' button on Discovery — currently the only way to view historique is to reload the page (state 'mission' only cleared on hard reload).",
+    "Optional: expose an is_duplicate hint pre-search (server returns is_duplicate=True on candidate cards for SIREN already in DB, which works well; UI could also disable the Accept button in that case to avoid the redundant duplicate check round-trip)."
+  ],
+  "critical_code_review_comments": [
+    "components/kit.jsx: several shared primitives (Card, PageHeader, etc.) don't spread ...props. Consider auditing all of them for consistent data-testid support. Btn correctly spreads props already.",
+    "Discovery.jsx run(): no in-flight guard; rapid double-click on run-btn could trigger two Sirene batches. Btn is disabled while running, so risk is low but still worth an AbortController for cleanliness.",
+    "discovery_service.search_companies: `dep_param = ','.join(departements)` — the recherche-entreprises API 'departement' param semantics with comma-separated list works in practice but is undocumented; if it silently ignores everything after the first, results would be biased to Paris. Consider looping per dept as a fallback (there are 8 IDF departements).",
+    "server.py /api/discovery/validate: dedup is by SIREN — good. Confirm that the historique's validated_count is not incremented when action=accept but result=duplicate (else counts will over-report).",
+    "Discovery.jsx line 91: hard-coded default French prompt is fine, but expose as a saved 'preset' feature if productizing multi-user."
+  ],
+  "updated_files": ["/app/frontend/src/components/kit.jsx"],
+  "success_rate": {"backend": "n/a (main-agent-verified via curl)", "frontend": "100% (8/8 review scenarios)"},
+  "test_credentials": "Admin: jp.koffi@prospectia.app / Prospectia2026! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "During the UI flow, 1 real Sirene company was accepted into CRM (SIREN 552108722 — SOC FIDUCIAIRE NATIO EXPERTISE COMPTABLE). It was deleted at the end via DELETE /api/companies/<id>. 3 discovery missions remain in the missions collection (harmless historique — no cleanup endpoint exposed).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Public URL: https://prospectia-app-1.preview.emergentagent.com. Discovery route: /discovery. Key data-testids: nav-discovery, mission-input, interpret-btn, mode-real, mode-simulation, interpretation-card, run-btn, candidate-<siren>, toggle-detail-<siren>, accept-<siren>, reject-<siren>, mission-<id>. IMPORTANT: the shared Card component in /app/frontend/src/components/kit.jsx now spreads ...props — do NOT revert this or every Card-level data-testid will silently drop. Real Sirene calls take 5-15s (patience >=45s in wait_for_selector). Score-ring labels use text-transform:uppercase so inner_text returns 'CONFIANCE' not 'Confiance' (assert case-insensitively). Historique only shows when no active mission is on-screen (reload page to see it).",
+  "rca of the issue": "Card component in kit.jsx did not spread props to its underlying <div>. As a result, data-testid attributes placed on <Card data-testid=...> — including interpretation-card and candidate-<siren> — were silently dropped from the DOM even though the visual card rendered correctly. Playwright's wait_for_selector kept timing out despite the card being visible on screen. Reproduction: click interpret-btn → screenshot shows the card, but querySelector('[data-testid=\"interpretation-card\"]') returns null. Mitigation: added {...props} spread on Card's root <div>. All downstream data-testid assertions now succeed."
+}

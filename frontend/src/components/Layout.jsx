@@ -4,11 +4,12 @@ import { useAuth } from "@/context/AuthContext";
 import {
   LayoutDashboard, Building2, Users, ScanSearch, CheckSquare, Megaphone, Mail,
   Repeat, MessageSquare, Target, FileText, Ban, Activity, Settings, AlertTriangle,
-  Menu, X, LogOut, Briefcase, ChevronRight
+  Menu, X, LogOut, Briefcase, ChevronRight, Radar
 } from "lucide-react";
 
 const NAV = [
   { to: "/", label: "Tableau de bord", icon: LayoutDashboard, testid: "nav-dashboard" },
+  { to: "/discovery", label: "Discovery Agent", icon: Radar, testid: "nav-discovery" },
   { to: "/entreprises", label: "Entreprises", icon: Building2, testid: "nav-companies" },
   { to: "/contacts", label: "Contacts", icon: Users, testid: "nav-contacts" },
   { to: "/validation", label: "File de validation", icon: CheckSquare, testid: "nav-validation" },
