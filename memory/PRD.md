@@ -28,5 +28,8 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - P2 : Test complet Agence Novéa, agent de collecte externe (scraping autorisé pages publiques), enrichissement.
 - Reporté Phase 2 : Kanban avancé, rendez-vous, stats avancées, intégrations (Gmail/SMTP/Brevo, Make/n8n), multi-utilisateur.
 
+- **Données démo simplifiées + analyse prudente** (2026) : badge « Démo » sur fiche, toggle inclure/exclure la démo des stats du tableau de bord (demo_count + bandeau + toggle-demo-btn), bouton suppression. Score « non calculé » (score=None) avant analyse. Analyse IA en 3 blocs (A/B/C), vocabulaire prudent, service « potentiel à explorer » conditionnel, « Analyse insuffisante » (score None), traçabilité score. Vérifié iterations 6-7.
+- **Discovery Agent V1** (2026) : agent de recherche d'entreprises RÉELLES via API Recherche d'Entreprises (Sirene INSEE, HTTP sortant confirmé). Workflow 4 étapes : interpret (mapping secteur→NAF pointé, région IDF→8 départements, corrigeable) → run réel/simulation → vérification (identité SIREN, activité NAF exact, statut actif) → scoring FIGÉ (3 tables : confiance identité, correspondance mission, complétude, /100 chacune, détail ligne par ligne). Filtre géographique STRICT côté client (l'API departement n'est qu'un tri). Site/tél/email « non disponible » (jamais inventés). Validation humaine 100% → création CRM avec dédup SIREN. RGPD : exclusion des SIREN en opposition, champ opposition_rgpd, source+date de collecte stockées. Mode simulation marqué. Cible adjacente (NAF voisins). Vérifié testing_agent iteration_8 (8/8 UI) + fix geo vérifié.
+
 ## Prochaines actions
-Démarrer le schéma « information vérifiable » (sources/preuves/confiance/historique) — fondation de l'explicabilité, avant scoring explicable et emails prudents.
+Démarrer le schéma « information vérifiable »

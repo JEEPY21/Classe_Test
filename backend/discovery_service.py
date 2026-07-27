@@ -144,6 +144,11 @@ async def search_companies(interp: dict, exclusion_sirens: set):
                         continue
                     seen_sirens.add(siren)
                     cand = _build_candidate(e, target_naf, departements, exclusions, adjacent, exclusion_sirens)
+                    # Filtre géographique STRICT côté client : l'API 'departement' n'est qu'un tri, pas un filtre dur
+                    if departements:
+                        cp = cand.get("code_postal") or ""
+                        if cp[:2] not in departements:
+                            continue
                     candidates.append(cand)
                     if len(candidates) >= max_results:
                         break

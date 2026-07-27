@@ -188,7 +188,10 @@ export default function Discovery() {
         <div>
           <div className="flex items-center justify-between mb-3">
             <h3 className="font-heading font-semibold text-slate-800">Résultats — {mission.candidates.length} entreprise(s)</h3>
-            <span className="text-xs text-slate-400 flex items-center gap-1"><Database className="w-3.5 h-3.5" /> {mission.meta.api_calls} appel(s) API · {mission.meta.total_api_results} au total dans Sirene</span>
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400 flex items-center gap-1"><Database className="w-3.5 h-3.5" /> {mission.meta.api_calls} appel(s) API · {mission.meta.total_api_results} au total dans Sirene</span>
+              <Btn variant="secondary" onClick={() => { setMission(null); setInterp(null); loadMissions(); }} data-testid="new-mission-btn">Nouvelle mission</Btn>
+            </div>
           </div>
           {mission.meta.source_unavailable && (
             <div className="flex items-center gap-2 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-3">
