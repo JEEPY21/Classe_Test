@@ -84,7 +84,7 @@ def interpret_mission(text: str) -> dict:
     # fourchette de taille demandée (nécessite un mot "salariés/employés/collaborateurs" pour éviter les faux positifs)
     size_range = None
     unit = r"(?:salari[ée]s?|employ[ée]s?|collaborateurs?|personnes?)"
-    sm = re.search(r"(?:de\s+)?(\d{1,6})\s*(?:à|a|-|au?)\s*(\d{1,6})\s*" + unit, t)
+    sm = re.search(r"(?:de\s+|entre\s+)?(\d{1,6})\s*(?:à|a|-|au?|et)\s*(\d{1,6})\s*" + unit, t)
     if sm:
         lo, hi = int(sm.group(1)), int(sm.group(2))
         size_range = (min(lo, hi), max(lo, hi))
