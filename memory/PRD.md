@@ -55,5 +55,13 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - **Testé** : run réel Sirene + enrich réel (site/tél récupérés, quota 1/900), chemin cache (0 conso, cohérence ok), UI e2e par capture. Contradiction correctement détectée quand noms/CP divergent.
 - ⚠️ Recommandé côté Google Cloud : poser aussi un **quota dur par méthode** (le budget d'alerte 3 € n'arrête pas l'usage). Le cap applicatif garantit déjà ≤ 900/mois.
 
+## Extraction email public depuis le site officiel (2026-07-27)
+- **Enchaîné automatiquement** à l'enrichissement Google Places (option a) : une fois le site officiel confirmé, `email_scraper.extract_public_email()` teste quelques pages contact probables (/contact, /nous-contacter, /mentions-legales… + accueil) et extrait un email réellement affiché (liens mailto + texte).
+- **Zéro invention** : jamais de `contact@domaine` déduit ; si rien → « Email non trouvé sur le site officiel ». **robots.txt respecté** (urllib.robotparser) → si accès interdit : « Extraction impossible — accès automatisé restreint par le site (robots.txt) ». Priorité aux boîtes génériques (contact@, info@, accueil@…), filtrage des faux positifs (assets, placeholders).
+- **Traçabilité** : URL exacte de la page + date de collecte + mode réel, stockées dans `email_source` de la fiche.
+- **Score** : critère Email (complétude 15) = points si trouvé avec preuve, 0 sinon ; critère confiance « téléphone OU email public » = 5 si tél OU email. Jamais de bonus par défaut.
+- **Coût : 0 €** (simple fetch HTTP, aucun service tiers). Résultat mis en cache dans `places_cache.email_info`.
+- **Testé** : email trouvé (SADEC → accueil.paris@sadec-akelys.fr, complétude 100/100), non trouvé, robots bloqué (Google/Facebook), site absent — tous honnêtes. UI e2e par capture.
+
 ## Prochaines actions
 Démarrer le schéma « information vérifiable »

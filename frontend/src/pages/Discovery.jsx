@@ -4,7 +4,7 @@ import { PageHeader, Card, Btn, Loading, Empty, Input, Textarea } from "@/compon
 import { toast } from "sonner";
 import {
   Radar, Sparkles, Loader2, MapPin, Building2, Check, X, ChevronDown, ChevronUp,
-  ShieldCheck, AlertTriangle, Database, FileSearch, Info, Globe, Phone, Wand2
+  ShieldCheck, AlertTriangle, Database, FileSearch, Info, Globe, Phone, Wand2, Mail
 } from "lucide-react";
 
 const ScoreRing = ({ label, value, max, color }) => (
@@ -36,6 +36,7 @@ function CandidateCard({ mission, cand, labels, onValidate, onEnrich, enriching,
             <span className="text-emerald-600 flex items-center gap-1"><ShieldCheck className="w-3 h-3" />{cand.verification.statut}</span>
             {cand.website && <a href={cand.website} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline" data-testid={`website-${cand.siren}`}><Globe className="w-3 h-3" />Site</a>}
             {cand.phone && <span className="flex items-center gap-1 text-slate-600" data-testid={`phone-${cand.siren}`}><Phone className="w-3 h-3" />{cand.phone}</span>}
+            {cand.email && <a href={`mailto:${cand.email}`} className="flex items-center gap-1 text-blue-600 hover:underline" data-testid={`email-${cand.siren}`}><Mail className="w-3 h-3" />{cand.email}</a>}
           </div>
         </div>
         <div className="flex items-center gap-4 flex-shrink-0">
@@ -79,6 +80,7 @@ function CandidateCard({ mission, cand, labels, onValidate, onEnrich, enriching,
             Confirmation Ordre des Experts-Comptables : <span className="text-amber-600">{cand.verification.ordre_experts_comptables || "Non disponible — source non exploitable automatiquement"}</span>
             {cand.verification.coherence && <><br />Cohérence multi-source : <span className={cand.contradictions && cand.contradictions.length ? "text-red-600" : "text-emerald-600"}>{cand.verification.coherence}</span></>}
             {cand.places && <><br />Source secondaire : {cand.places.source} · {cand.places.formattedAddress} · Collecté le {new Date(cand.places.collected_at).toLocaleString("fr-FR")}</>}
+            {cand.email_source && <><br />Email : {cand.email ? <span className="text-emerald-600">{cand.email} — trouvé sur {cand.email_source.source_url}</span> : <span className="text-amber-600">{cand.email_source.note || "Email non trouvé sur le site officiel"}</span>}{cand.email_source.collected_at && <> · Collecté le {new Date(cand.email_source.collected_at).toLocaleString("fr-FR")}</>}</>}
             {cand.dirigeants_count > 0 && <> · {cand.dirigeants_count} dirigeant(s) recensé(s) (RGPD : intérêt légitime B2B)</>}
           </div>
         </div>
@@ -157,9 +159,14 @@ export default function Discovery() {
       const { data } = await client.post("/discovery/enrich", { mission_id: mission.id, siren });
       setMission((m) => ({ ...m, candidates: m.candidates.map((c) => (c.siren === siren ? data.candidate : c)) }));
       const u = data.usage || {};
-      const found = data.candidate.website || data.candidate.phone;
+      const c = data.candidate;
+      const parts = [];
+      if (c.website) parts.push("site");
+      if (c.phone) parts.push("téléphone");
+      if (c.email) parts.push("email");
+      const found = parts.length > 0;
       toast[found ? "success" : "warning"](
-        `${found ? "Enrichi via Google Places" : "Aucune donnée trouvée sur Google Places"} · ${u.remaining}/${u.cap} requête(s) restante(s) ce mois`);
+        `${found ? "Enrichi (Google Places) : " + parts.join(", ") : "Aucune donnée trouvée"} · ${u.remaining}/${u.cap} requête(s) Google restante(s) ce mois`);
     } catch (e) { toast.error(apiError(e)); }
     finally { setEnriching((e) => ({ ...e, [siren]: false })); }
   };

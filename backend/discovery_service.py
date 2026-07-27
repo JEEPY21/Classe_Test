@@ -327,14 +327,15 @@ def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, ex
     }
 
 
-def apply_places_enrichment(cand: dict, places: dict) -> dict:
-    """Applique l'enrichissement Google Places (source secondaire) à une fiche candidat et
-    recalcule les critères site/téléphone + la cohérence multi-sources (désormais vérifiable)."""
+def apply_places_enrichment(cand: dict, places: dict, email_info: dict = None) -> dict:
+    """Applique l'enrichissement Google Places (source secondaire) + extraction email du site officiel,
+    et recalcule les critères site/téléphone/email + la cohérence multi-sources (désormais vérifiable)."""
     website = places.get("websiteUri")
     phone = places.get("nationalPhoneNumber")
     match = places.get("match") or {}
     g_name = match.get("name") or ""
     g_addr = match.get("formattedAddress") or ""
+    email = (email_info or {}).get("email")
 
     cand["website"] = website
     cand["phone"] = phone
@@ -369,15 +370,25 @@ def apply_places_enrichment(cand: dict, places: dict) -> dict:
             coherence_note = f"Cohérent : Sirene ↔ Google Places (nom concordant, code postal {cp} confirmé)"
 
     cand["contradictions"] = contradictions
+    cand["email"] = email
+    cand["email_source"] = email_info
     cand["verification"]["site_officiel"] = website or "Non trouvé via Google Places"
     cand["verification"]["coordonnees"] = phone or "Téléphone non trouvé via Google Places"
     cand["verification"]["coherence"] = coherence_note
+    # libellé email honnête
+    if email:
+        cand["verification"]["email"] = f"{email} (source : {(email_info or {}).get('source_url')})"
+    elif not website:
+        cand["verification"]["email"] = "Aucun site officiel — extraction impossible"
+    else:
+        cand["verification"]["email"] = (email_info or {}).get("note") or "Email non trouvé sur le site officiel"
 
     conf = cand["scores"]["confidence"]["detail"]
     conf["site_officiel_confirme"] = _crit("Site officiel confirmé (Google Places)", 10 if website else 0, 10,
                                            note=None if website else "Non trouvé via Google Places")
-    conf["telephone_email_public"] = _crit("Téléphone ou email public trouvé (Google Places)", 5 if phone else 0, 5,
-                                           note=None if phone else "Non trouvé via Google Places")
+    conf["telephone_email_public"] = _crit(
+        "Téléphone ou email public trouvé", 5 if (phone or email) else 0, 5,
+        note=None if (phone or email) else "Ni téléphone (Google Places) ni email (site officiel) trouvé")
     conf["coherence_sources"] = _crit("Cohérence entre sources (Sirene ↔ Google Places)", coherence_pts, 5,
                                       status=coherence_status, note=coherence_note)
     cand["scores"]["confidence"] = _score(conf)
@@ -387,6 +398,8 @@ def apply_places_enrichment(cand: dict, places: dict) -> dict:
                                   note=None if website else "Non trouvé via Google Places")
     comp["telephone"] = _crit("Téléphone", 15 if phone else 0, 15,
                               note=None if phone else "Non trouvé via Google Places")
+    comp["email"] = _crit("Email", 15 if email else 0, 15,
+                          note=None if email else cand["verification"]["email"])
     cand["scores"]["completeness"] = _score(comp)
 
     cand["enriched"] = True

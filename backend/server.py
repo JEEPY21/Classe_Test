@@ -27,6 +27,7 @@ import seed_data
 import import_service
 import discovery_service
 import places_service
+import email_scraper
 
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -1163,7 +1164,12 @@ async def discovery_enrich(body: PlacesEnrichIn, user: dict = Depends(get_curren
     cached = await db.places_cache.find_one({"cache_key": key}, {"_id": 0})
     if cached:
         places = cached["data"]
+        email_info = cached.get("email_info")
         source = "cache"
+        # site connu mais email pas encore extrait (ancienne entrée) -> extraction (coût 0)
+        if places.get("websiteUri") and email_info is None:
+            email_info = await email_scraper.extract_public_email(places["websiteUri"])
+            await db.places_cache.update_one({"cache_key": key}, {"$set": {"email_info": email_info}})
     else:
         used = await _places_usage(month)
         if used >= PLACES_MONTHLY_CAP:
@@ -1175,16 +1181,21 @@ async def discovery_enrich(body: PlacesEnrichIn, user: dict = Depends(get_curren
             await log_error("Google Places indisponible", str(e), body.mission_id, "Réessayer plus tard")
             raise HTTPException(502, f"Google Places indisponible : {type(e).__name__}")
         await _places_add(month, calls)
+        # extraction email depuis le site officiel (fetch HTML, robots.txt respecté, aucun coût)
+        email_info = None
+        if places.get("websiteUri"):
+            email_info = await email_scraper.extract_public_email(places["websiteUri"])
         await db.places_cache.update_one({"cache_key": key},
-            {"$set": {"cache_key": key, "data": places, "updated_at": now_iso()}}, upsert=True)
+            {"$set": {"cache_key": key, "data": places, "email_info": email_info, "updated_at": now_iso()}}, upsert=True)
         source = "google"
 
-    updated = discovery_service.apply_places_enrichment(cand, places)
+    updated = discovery_service.apply_places_enrichment(cand, places, email_info)
     cands = [updated if c.get("siren") == body.siren else c for c in mission["candidates"]]
     await db.discovery_missions.update_one({"id": body.mission_id}, {"$set": {"candidates": cands}})
     await log_activity("Enrichissement Google Places", "discovery", body.mission_id,
                        new_state=company_name, detail=f"site={'oui' if updated.get('website') else 'non'}, "
-                       f"tél={'oui' if updated.get('phone') else 'non'}", auto=False)
+                       f"tél={'oui' if updated.get('phone') else 'non'}, "
+                       f"email={'oui' if updated.get('email') else 'non'}", auto=False)
     used_after = await _places_usage(month)
     return {"candidate": clean(updated), "source": source,
             "usage": {"used": used_after, "cap": PLACES_MONTHLY_CAP, "remaining": max(0, PLACES_MONTHLY_CAP - used_after)}}
