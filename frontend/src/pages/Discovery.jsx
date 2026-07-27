@@ -72,7 +72,8 @@ function CandidateCard({ mission, cand, labels, onValidate, done }) {
           <div className="md:col-span-3 text-slate-500 bg-slate-50 rounded-lg p-3">
             <div className="flex items-center gap-1 font-medium text-slate-600 mb-1"><Info className="w-3.5 h-3.5" /> Traçabilité</div>
             Source : {(cand.source || {}).endpoint} · Collecté le {new Date((cand.source || {}).collected_at).toLocaleString("fr-FR")} · Mode {(cand.source || {}).mode}<br />
-            Site officiel : {cand.verification.site_officiel} · Coordonnées : {cand.verification.coordonnees}
+            Site officiel : {cand.verification.site_officiel} · Coordonnées : {cand.verification.coordonnees}<br />
+            Confirmation Ordre des Experts-Comptables : <span className="text-amber-600">{cand.verification.ordre_experts_comptables || "Non disponible — source non exploitable automatiquement"}</span>
             {cand.dirigeants_count > 0 && <> · {cand.dirigeants_count} dirigeant(s) recensé(s) (RGPD : intérêt légitime B2B)</>}
           </div>
         </div>

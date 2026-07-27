@@ -42,5 +42,9 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - **Tests variés (P1 fait)** : interprétation validée sur avocats/communication/logiciels/conseil/architectes/RH ; tailles (1-20, 10-49, moins de 50, plus de 200, entre X et Y) ; indisponibilité Sirene → 0 candidat, `source_unavailable=True`, aucune donnée inventée. Run réel Sirene validé (3 cabinets Paris réels, filtre taille effectif).
 - **Couverture régionale élargie** : ajout `MAJOR_CITIES` (Lyon, Marseille, Bordeaux, Lille, Toulouse, Nantes, Nice, etc.) + détection « département XX » / « (XX) ». Auparavant seule l'Île-de-France était géo-filtrée.
 
+## Ordre Experts-Comptables + clarif Google Places (2026-07-27)
+- **Ordre (option d retenue)** : non intégré. Affichage « Confirmation Ordre des Experts-Comptables : Non disponible » ajouté (a) sur chaque fiche entreprise via carte « Vérifications externes » (CompanyDetail.jsx, data-testid external-verifications-card / verif-ordre) et (b) dans la traçabilité des candidats Discovery (backend verification.ordre_experts_comptables + Discovery.jsx). Motif documenté : robots.txt du CNOEC interdit /recherche*, contenu sous droit d'auteur, RGPD.
+- **Google Places (recherche, en attente décision)** : modèle par SKU depuis mars 2025 — Essentials 10 000/mois, Pro 5 000/mois, Enterprise 1 000/mois (gratuits). `websiteUri` + `nationalPhoneNumber` = SKU Enterprise → **~1 000 fiches complètes (site+téléphone) gratuites/mois**. Compte de facturation + carte obligatoire même en gratuit ; quota dur recommandé (~900) pour garantir 0 €. Rien intégré.
+
 ## Prochaines actions
 Démarrer le schéma « information vérifiable »

@@ -316,6 +316,7 @@ def _build_candidate(e: dict, target_naf, departements, exclusions, adjacent, ex
             "statut": "Actif" if status_active else "Non actif",
             "site_officiel": "Non trouvé (source secondaire indisponible)",
             "coordonnees": "Non disponibles via Sirene",
+            "ordre_experts_comptables": "Non disponible — source non exploitable automatiquement",
         },
         "scores": {
             "confidence": _score(conf),

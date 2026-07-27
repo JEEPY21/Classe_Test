@@ -215,7 +215,23 @@ export default function CompanyDetail() {
             )}
           </Card>
 
-          {/* Contacts */}
+          {/* Vérifications externes */}
+          <Card className="p-6" data-testid="external-verifications-card">
+            <h3 className="font-heading font-semibold text-slate-800 mb-3 flex items-center gap-2"><AlertCircle className="w-4 h-4 text-amber-500" /> Vérifications externes</h3>
+            <ul className="space-y-2 text-xs">
+              <li className="flex items-start justify-between gap-2">
+                <span className="text-slate-500">Identité légale (SIREN / Sirene)</span>
+                <span className={c.siren ? "text-emerald-600 font-medium text-right" : "text-slate-400 text-right"} data-testid="verif-sirene">{c.siren ? `Confirmée · ${c.siren}` : "Non renseignée"}</span>
+              </li>
+              <li className="flex items-start justify-between gap-2" data-testid="verif-ordre">
+                <span className="text-slate-500">Confirmation Ordre des Experts-Comptables</span>
+                <span className="text-amber-600 text-right">Non disponible</span>
+              </li>
+            </ul>
+            <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">
+              L'annuaire du CNOEC n'est pas exploitable automatiquement (droit d'auteur, robots.txt, RGPD). Cette confirmation reste donc « non disponible » tant qu'aucune source autorisée n'est activée.
+            </p>
+          </Card>
           <Card className="p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-heading font-semibold text-slate-800">Contacts</h3>
