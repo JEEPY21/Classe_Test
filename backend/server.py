@@ -466,27 +466,45 @@ async def analyze(cid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(404, "Entreprise introuvable")
     await db.companies.update_one({"id": cid}, {"$set": {"status": "En analyse"}})
     await log_activity("Analyse lancée", "entreprise", cid, new_state=company["name"])
+    # Récupération du contenu réel du site officiel (accueil + contact) comme contexte d'analyse.
+    site_context = None
+    if company.get("website"):
+        try:
+            site_context = await email_scraper.fetch_site_text(company["website"])
+        except Exception as e:
+            site_context = {"text": "", "pages_used": [], "robots_blocked": False,
+                            "note": f"Site inaccessible ({type(e).__name__}) — analyse basée sur le dossier",
+                            "collected_at": now_iso(), "chars": 0}
     try:
-        analysis = await ai_service.analyze_company(company)
-        score_res = await ai_service.score_company(company, analysis)
+        analysis = await ai_service.analyze_company(company, site_context)
+        score_res = await ai_service.score_company(company, analysis, site_context)
     except Exception as e:
         await log_error("Format IA invalide", str(e), cid, "Relancer l'analyse")
         await db.companies.update_one({"id": cid}, {"$set": {"status": "À analyser"}})
         raise HTTPException(502, f"Erreur IA: {e}")
-    score_res["external_search_done"] = False  # aucune vérification extérieure à ce stade (traçabilité garantie)
+    used_site = bool(site_context and site_context.get("text"))
+    score_res["external_search_done"] = used_site
+    site_trace = None
+    if site_context:
+        site_trace = {"used": used_site, "pages_used": site_context.get("pages_used", []),
+                      "chars": site_context.get("chars", 0), "robots_blocked": site_context.get("robots_blocked", False),
+                      "note": site_context.get("note"), "collected_at": site_context.get("collected_at")}
     insufficient = bool(analysis.get("insufficient"))
     if insufficient:
         # dossier trop pauvre : pas de score officiel, on conserve l'analyse (bloc « analyse insuffisante »)
         await db.companies.update_one({"id": cid}, {"$set": {
             "analysis": analysis, "score_detail": score_res, "score": None,
+            "analysis_site_context": site_trace,
             "status": "À analyser", "updated_at": now_iso()}})
         await log_activity("Analyse terminée", "entreprise", cid, new_state="Analyse insuffisante")
     else:
         score = int(score_res.get("score", 0))
         await db.companies.update_one({"id": cid}, {"$set": {
             "analysis": analysis, "score_detail": score_res, "score": score,
+            "analysis_site_context": site_trace,
             "status": "Qualifié" if score >= 50 else "Non qualifié", "updated_at": now_iso()}})
-        await log_activity("Analyse terminée", "entreprise", cid, new_state=f"Score provisoire {score}")
+        await log_activity("Analyse terminée", "entreprise", cid,
+                           new_state=f"Score provisoire {score}" + (" (site officiel lu)" if used_site else ""))
     doc = await db.companies.find_one({"id": cid}, {"_id": 0})
     return doc
 

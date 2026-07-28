@@ -227,7 +227,22 @@ export default function CompanyDetail() {
                 <span className="text-slate-500">Confirmation Ordre des Experts-Comptables</span>
                 <span className="text-amber-600 text-right">Non disponible</span>
               </li>
+              <li className="flex items-start justify-between gap-2" data-testid="verif-site-content">
+                <span className="text-slate-500">Contenu du site officiel (analyse IA)</span>
+                {c.analysis_site_context?.used
+                  ? <span className="text-emerald-600 text-right">Lu · {c.analysis_site_context.pages_used?.length || 0} page(s)</span>
+                  : <span className="text-slate-400 text-right">{c.website ? (c.analysis_site_context?.robots_blocked ? "Bloqué (robots.txt)" : "Non lu") : "Aucun site"}</span>}
+              </li>
             </ul>
+            {c.analysis_site_context?.used && (
+              <p className="text-[11px] text-slate-500 mt-2 pt-2 border-t border-slate-100" data-testid="site-content-pages">
+                Pages lues : {(c.analysis_site_context.pages_used || []).join(", ")}
+                {c.analysis_site_context.collected_at && <> · le {new Date(c.analysis_site_context.collected_at).toLocaleString("fr-FR")}</>}
+              </p>
+            )}
+            {c.analysis_site_context && !c.analysis_site_context.used && c.analysis_site_context.note && (
+              <p className="text-[11px] text-amber-600 mt-2">{c.analysis_site_context.note}</p>
+            )}
             <p className="text-[11px] text-slate-400 mt-3 pt-3 border-t border-slate-100">
               L'annuaire du CNOEC n'est pas exploitable automatiquement (droit d'auteur, robots.txt, RGPD). Cette confirmation reste donc « non disponible » tant qu'aucune source autorisée n'est activée.
             </p>

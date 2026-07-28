@@ -41,7 +41,8 @@ ANALYSIS_SYSTEM = (
     "RÈGLES ABSOLUES : "
     "1) Tu n'inventes JAMAIS un fait ni une absence de fait. "
     "2) Tu distingues strictement : donnée non renseignée dans le dossier, donnée non vérifiée, recherche sans résultat, absence confirmée. "
-    "3) Aucune vérification extérieure n'a été effectuée : tu ne peux te baser que sur les données du dossier fournies. "
+    "3) La seule source extérieure autorisée est le CONTENU DU SITE OFFICIEL lorsqu'il est fourni ci-dessous (source vérifiée) ; "
+    "en son absence, tu ne peux te baser que sur les données du dossier. Aucune autre supposition extérieure. "
     "4) N'écris JAMAIS des formulations catégoriques comme « aucun site », « pas de LinkedIn », « aucun tunnel ». "
     "Écris plutôt « site non renseigné dans le dossier / non vérifié », « présence LinkedIn non confirmée », « tunnel public non vérifié ». "
     "5) Sépare toujours les FAITS (données présentes) des HYPOTHÈSES (interprétations conditionnelles). "
@@ -49,36 +50,53 @@ ANALYSIS_SYSTEM = (
 )
 
 
-async def analyze_company(company: dict) -> dict:
+async def analyze_company(company: dict, site_context: dict = None) -> dict:
     present = {k: v for k, v in {
         "Site internet": company.get("website"), "Email générique": company.get("generic_email"),
         "Téléphone": company.get("phone"), "LinkedIn": company.get("linkedin"),
         "Facebook": company.get("facebook"), "Instagram": company.get("instagram"),
         "Description": company.get("description"), "Adresse": company.get("address"),
     }.items() if v}
-    prompt = f"""Analyse ce dossier prospect À PARTIR UNIQUEMENT des données du dossier ci-dessous.
-Aucune recherche extérieure n'a été réalisée.
+    site_text = (site_context or {}).get("text") or ""
+    if site_text:
+        pages = ", ".join((site_context or {}).get("pages_used") or [])
+        site_block = (
+            "\n\n=== CONTENU RÉEL DU SITE OFFICIEL (source vérifiée — extraite automatiquement) ===\n"
+            f"Pages lues : {pages}\n"
+            "Ce texte provient réellement du site officiel de l'entreprise. Tu peux t'en servir comme FAITS "
+            "sur ce que l'entreprise dit d'elle-même (activité, services, cible, ton, coordonnées), en précisant "
+            "que la source est le site officiel. Ne déduis rien au-delà de ce qui est écrit.\n"
+            f"\"\"\"\n{site_text}\n\"\"\"\n"
+        )
+        reliability = "Fiabilité modérée — analyse appuyée sur le contenu réel du site officiel (source citée)."
+    else:
+        note = (site_context or {}).get("note")
+        site_block = ("\n\nContenu du site officiel : " + (note or "non disponible") +
+                      ". Aucune autre vérification extérieure n'a été effectuée.\n") if company.get("website") else \
+                     "\n\nAucun site officiel renseigné : aucune vérification extérieure possible.\n"
+        reliability = "Fiabilité faible — aucune vérification extérieure effectuée."
+
+    prompt = f"""Analyse ce dossier prospect à partir des données du dossier ET, si présent, du contenu réel du site officiel ci-dessous.
 
 Entreprise : {company.get('name')}
 Secteur : {company.get('sector') or 'non renseigné'}
 Ville : {company.get('city') or 'non renseignée'}
-Données présentes dans le dossier : {present or 'très peu de données'}
-
-Détermine d'abord si les données sont SUFFISANTES pour un diagnostic fiable (au moins nom + secteur + une donnée de présence digitale). Sinon, mets "insufficient": true.
+Données présentes dans le dossier : {present or 'très peu de données'}{site_block}
+Détermine d'abord si les données sont SUFFISANTES pour un diagnostic fiable (au moins nom + secteur + une donnée de présence digitale OU du contenu réel du site). Sinon, mets "insufficient": true.
 
 Réponds STRICTEMENT avec ce JSON :
 {{
-  "summary": "résumé prudent de l'activité basé sur le dossier (2-3 phrases, sans rien inventer)",
-  "data_available": ["fait réellement présent dans le dossier 1", "fait 2"],
+  "summary": "résumé prudent de l'activité basé sur le dossier et le site officiel s'il est disponible (2-3 phrases, sans rien inventer)",
+  "data_available": ["fait réellement présent (dossier ou site officiel, précise la source) 1", "fait 2"],
   "missing_or_unverified": ["donnée absente ou non vérifiée à rechercher/confirmer 1", "élément 2"],
   "hypotheses": ["hypothèse commerciale prudente et conditionnelle 1", "hypothèse 2"],
   "questions_to_ask": ["question à poser au prospect pour lever une incertitude 1", "question 2"],
   "potential_service": "service potentiel à explorer (nom)",
-  "service_condition": "condition sous laquelle ce service est pertinent (ex: à envisager uniquement si l'absence de site est confirmée)",
+  "service_condition": "condition sous laquelle ce service est pertinent",
   "entry_offer": "Audit gratuit du système d'acquisition digitale",
-  "prospecting_angle": "angle de prospection prudent en une phrase",
+  "prospecting_angle": "angle de prospection prudent en une phrase, idéalement ancré sur ce que dit le site officiel",
   "confidence": "faible|moyen|élevé",
-  "reliability_note": "Fiabilité faible — aucune vérification extérieure effectuée.",
+  "reliability_note": "{reliability}",
   "insufficient": false
 }}"""
     return await _run(ANALYSIS_SYSTEM, prompt, f"analysis-{company.get('id','x')}")
@@ -90,12 +108,26 @@ SCORING_SYSTEM = (
 )
 
 
-async def score_company(company: dict, analysis: dict) -> dict:
-    prompt = f"""Calcule un SCORE COMMERCIAL PROVISOIRE (sur 100) pour ce dossier, basé UNIQUEMENT sur les données présentes.
-Aucune recherche extérieure n'a été effectuée : la fiabilité est donc faible.
+async def score_company(company: dict, analysis: dict, site_context: dict = None) -> dict:
+    site_text = (site_context or {}).get("text") or ""
+    if site_text:
+        pages = ", ".join((site_context or {}).get("pages_used") or [])
+        source_block = (f"\nContenu réel du site officiel LU (source vérifiée, pages : {pages}) — extrait :\n"
+                        f"\"\"\"\n{site_text[:2500]}\n\"\"\"\n")
+        reliability_line = "Fiabilité modérée — score appuyé sur le contenu réel du site officiel (source citée)."
+        ext_done = True
+        header = "Une lecture du site officiel a été effectuée (source réelle citée) : la fiabilité est modérée."
+    else:
+        source_block = ""
+        reliability_line = "Fiabilité faible — aucune vérification extérieure effectuée."
+        ext_done = False
+        header = "Aucune recherche extérieure n'a été effectuée : la fiabilité est donc faible."
 
-Grille (attribue les points uniquement si la donnée est réellement présente/déductible du dossier) :
-- problème digital potentiel visible dans le dossier : 20
+    prompt = f"""Calcule un SCORE COMMERCIAL PROVISOIRE (sur 100) pour ce dossier, basé sur les données présentes et le contenu réel du site officiel s'il est fourni.
+{header}
+
+Grille (attribue les points uniquement si la donnée est réellement présente/déductible du dossier ou du site officiel) :
+- problème digital potentiel visible dans le dossier/site : 20
 - adéquation potentielle avec les services : 20
 - entreprise active (indices présents) : 10
 - décideur identifiable : 15
@@ -106,25 +138,24 @@ Grille (attribue les points uniquement si la donnée est réellement présente/d
 
 Entreprise : {company.get('name')} | Secteur : {company.get('sector') or 'non renseigné'} | Site : {company.get('website') or 'non renseigné'} | Email : {company.get('generic_email') or 'non renseigné'}
 Faits du dossier : {analysis.get('data_available')}
-Éléments manquants/non vérifiés : {analysis.get('missing_or_unverified')}
-
+Éléments manquants/non vérifiés : {analysis.get('missing_or_unverified')}{source_block}
 Réponds STRICTEMENT avec ce JSON :
 {{
   "score": <entier 0-100>,
-  "score_label": "Score provisoire basé sur les données du dossier",
+  "score_label": "Score provisoire basé sur les données du dossier{' et le site officiel' if site_text else ''}",
   "breakdown": {{
     "probleme_visible": <0-20>, "adequation_services": <0-20>, "entreprise_active": <0-10>,
     "decideur_identifiable": <0-15>, "email_pro": <0-10>, "capacite_financiere": <0-10>,
     "besoin_urgent": <0-10>, "personnalisation": <0-5>
   }},
-  "data_used": ["donnée du dossier utilisée pour le calcul 1", "donnée 2"],
+  "data_used": ["donnée utilisée pour le calcul (précise si dossier ou site officiel) 1", "donnée 2"],
   "data_absent": ["donnée manquante qui limite le score 1", "donnée 2"],
   "rules_applied": "résumé des règles appliquées",
-  "limits": "limites du calcul (ex: aucune donnée vérifiée extérieurement)",
-  "external_search_done": false,
+  "limits": "limites du calcul",
+  "external_search_done": {str(ext_done).lower()},
   "explanation": "explication des points attribués",
   "recommendation": "Priorité élevée|Bon prospect|À examiner|Faible priorité",
-  "reliability": "Fiabilité faible — aucune vérification extérieure effectuée.",
+  "reliability": "{reliability_line}",
   "confidence": "faible|moyen|élevé"
 }}"""
     return await _run(SCORING_SYSTEM, prompt, f"score-{company.get('id','x')}")

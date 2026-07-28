@@ -137,3 +137,80 @@ async def extract_public_email(website_url: str) -> dict:
         if blocked_any:
             result["note"] += " (certaines pages sont bloquées par robots.txt)"
     return result
+
+
+# ---- Récupération du contenu textuel du site officiel (accueil + contact) pour l'analyse IA ----
+import html as _html
+
+_CONTEXT_PATHS = ["/", "/contact", "/nous-contacter", "/contactez-nous", "/a-propos"]
+_MAX_CONTEXT_PAGES = 3
+_MAX_CHARS_PER_PAGE = 3000
+_MAX_CHARS_TOTAL = 6000
+
+
+def _html_to_text(html_str: str) -> str:
+    if not html_str:
+        return ""
+    s = re.sub(r"(?is)<(script|style|noscript|svg|head)[^>]*>.*?</\1>", " ", html_str)
+    s = re.sub(r"(?s)<[^>]+>", " ", s)
+    s = _html.unescape(s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+async def fetch_site_text(website_url: str) -> dict:
+    """Récupère le texte visible de la page d'accueil + page contact du site officiel (source réelle, robots.txt respecté).
+    Renvoie {text, pages_used, robots_blocked, note, collected_at, chars}. Ne devine rien : si inaccessible -> text vide + note."""
+    result = {"text": "", "pages_used": [], "robots_blocked": False, "note": None,
+              "collected_at": now_iso(), "chars": 0}
+    if not website_url:
+        result["note"] = "Aucun site officiel enregistré"
+        return result
+
+    parsed = urlparse(website_url if "://" in website_url else "https://" + website_url)
+    base = f"{parsed.scheme}://{parsed.netloc}"
+    urls, seen = [], set()
+    for u in [website_url] + [urljoin(base + "/", p.lstrip("/")) for p in _CONTEXT_PATHS]:
+        if u not in seen:
+            seen.add(u)
+            urls.append(u)
+
+    blocked_any = False
+    chunks = []
+    async with httpx.AsyncClient(follow_redirects=True, timeout=TIMEOUT,
+                                 headers={"User-Agent": USER_AGENT}) as client:
+        rp = await _load_robots(client, base)
+        for url in urls:
+            if len(result["pages_used"]) >= _MAX_CONTEXT_PAGES or result["chars"] >= _MAX_CHARS_TOTAL:
+                break
+            try:
+                allowed = rp.can_fetch(USER_AGENT, url) and rp.can_fetch("*", url)
+            except Exception:
+                allowed = True
+            if not allowed:
+                blocked_any = True
+                continue
+            try:
+                r = await client.get(url)
+            except Exception:
+                continue
+            if r.status_code != 200 or not r.text:
+                continue
+            text = _html_to_text(r.text[:MAX_BYTES])[:_MAX_CHARS_PER_PAGE]
+            if len(text) < 40:
+                continue
+            chunks.append(f"[Page : {r.url}]\n{text}")
+            result["pages_used"].append(str(r.url))
+            result["chars"] += len(text)
+
+    result["text"] = ("\n\n".join(chunks))[:_MAX_CHARS_TOTAL]
+    result["chars"] = len(result["text"])
+    if not result["pages_used"]:
+        if blocked_any:
+            result["robots_blocked"] = True
+            result["note"] = "Contenu du site non lu — accès automatisé restreint par le site (robots.txt)"
+        else:
+            result["note"] = "Site officiel inaccessible — analyse basée sur les données du dossier uniquement"
+    else:
+        result["note"] = f"Contenu réel lu sur {len(result['pages_used'])} page(s) du site officiel"
+    return result

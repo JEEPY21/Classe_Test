@@ -63,5 +63,12 @@ Ordre imposé par l'utilisateur (section 31) — à traiter par étapes, test ap
 - **Coût : 0 €** (simple fetch HTTP, aucun service tiers). Résultat mis en cache dans `places_cache.email_info`.
 - **Testé** : email trouvé (SADEC → accueil.paris@sadec-akelys.fr, complétude 100/100), non trouvé, robots bloqué (Google/Facebook), site absent — tous honnêtes. UI e2e par capture.
 
+## Analyse IA ancrée sur le contenu réel du site officiel (2026-07-28)
+- **Avant le scoring**, l'endpoint `/api/companies/{id}/analyze` récupère automatiquement le texte de la page d'accueil + page contact du site officiel (`email_scraper.fetch_site_text`, accueil + /contact + variantes, robots.txt respecté, ≤3 pages / 6000 caractères, coût 0).
+- Ce texte est passé à `ai_service.analyze_company(company, site_context)` et `score_company(..., site_context)` comme **source réelle vérifiée** : les faits `data_available` sont désormais sourcés « (source : site officiel) » vs « (source : dossier) ». Fiabilité passe de « faible » à « modérée » et `external_search_done=True` quand le site est lu.
+- **Fallback** : si le site est inaccessible / bloqué par robots.txt, l'analyse continue normalement avec les seules données du dossier (fiabilité faible, `used=False`, note honnête).
+- **Traçabilité** stockée dans `company.analysis_site_context` {used, pages_used, chars, robots_blocked, note, collected_at} et affichée dans la carte « Vérifications externes » (fiche entreprise).
+- **Testé** (curl e2e) : site réel (SADEC → 2 pages lues, faits sourcés du site, score 61, fiabilité modérée) ; site invalide (fallback dossier, score 41, fiabilité faible) ; fetch unitaire + capture UI.
+
 ## Prochaines actions
 Démarrer le schéma « information vérifiable »
