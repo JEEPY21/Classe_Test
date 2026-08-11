@@ -160,6 +160,7 @@ class Campaign(BaseModel):
     start_date: Optional[str] = ""
     end_date: Optional[str] = ""
     followup_sequence: List[int] = [3, 7, 14]
+    followup_messages: List[dict] = []
     status: Optional[str] = "Brouillon"
     is_demo: bool = False
 
@@ -192,6 +193,9 @@ class ReplyIn(BaseModel):
     company_id: str
     email_id: Optional[str] = ""
     text: str
+
+class RespondIn(BaseModel):
+    message: str
 
 class GenericIn(BaseModel):
     data: dict = {}
@@ -716,9 +720,16 @@ async def list_replies(user: dict = Depends(get_current_user)):
     docs = await db.replies.find({}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     cids = list({d["company_id"] for d in docs})
     companies = await db.companies.find({"id": {"$in": cids}}, {"_id": 0}).to_list(1000)
-    cmap = {c["id"]: c.get("name", "") for c in companies}
+    cmap = {c["id"]: c for c in companies}
+    contacts = await db.contacts.find({"company_id": {"$in": cids}}, {"_id": 0}).to_list(2000)
+    contact_map = {}
+    for ct in contacts:
+        contact_map.setdefault(ct["company_id"], ct)
     for d in docs:
-        d["company_name"] = cmap.get(d["company_id"], "")
+        comp = cmap.get(d["company_id"], {})
+        d["company_name"] = comp.get("name", "")
+        ct = contact_map.get(d["company_id"])
+        d["recipient"] = (ct or {}).get("email") or comp.get("generic_email") or ""
     return docs
 
 @api.post("/replies")
@@ -762,6 +773,25 @@ async def create_reply(body: ReplyIn, user: dict = Depends(get_current_user)):
     else:
         await db.companies.update_one({"id": body.company_id}, {"$set": {"status": "A répondu"}})
     return clean(doc)
+
+
+@api.post("/replies/{rid}/respond")
+async def respond_reply(rid: str, body: RespondIn, user: dict = Depends(get_current_user)):
+    """Envoi (SIMULATION) d'une réponse au prospect depuis l'application, avec traçabilité."""
+    reply = await db.replies.find_one({"id": rid}, {"_id": 0})
+    if not reply:
+        raise HTTPException(404, "Réponse introuvable")
+    if not (body.message or "").strip():
+        raise HTTPException(400, "Le message ne peut pas être vide")
+    company = await db.companies.find_one({"id": reply["company_id"]}, {"_id": 0})
+    contact = await db.contacts.find_one({"company_id": reply["company_id"]}, {"_id": 0})
+    dest = (contact or {}).get("email") or (company or {}).get("generic_email") or ""
+    ts = now_iso()
+    await db.replies.update_one({"id": rid}, {"$set": {
+        "handled": True, "response_text": body.message, "responded_to": dest, "responded_at": ts}})
+    await log_activity("Réponse envoyée au prospect", "réponse", rid,
+                       new_state=f"→ {dest or 'destinataire inconnu'} (simulation)", auto=False)
+    return {"ok": True, "dest": dest, "responded_at": ts}
 
 
 # ---------- Opportunities ----------
