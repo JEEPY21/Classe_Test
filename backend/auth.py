@@ -28,7 +28,7 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 def create_access_token(user_id: str, email: str) -> str:
     payload = {"sub": user_id, "email": email,
-               "exp": datetime.now(timezone.utc) + timedelta(minutes=60), "type": "access"}
+               "exp": datetime.now(timezone.utc) + timedelta(minutes=480), "type": "access"}
     return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
@@ -39,7 +39,7 @@ def create_refresh_token(user_id: str) -> str:
 
 def _set_cookies(response: Response, access: str, refresh: str):
     response.set_cookie("access_token", access, httponly=True, secure=True,
-                        samesite="none", max_age=3600, path="/")
+                        samesite="none", max_age=28800, path="/")
     response.set_cookie("refresh_token", refresh, httponly=True, secure=True,
                         samesite="none", max_age=604800, path="/")
 
@@ -86,10 +86,12 @@ async def register(body: RegisterInput, response: Response):
     res = await db.users.insert_one(doc)
     uid = str(res.inserted_id)
     access = create_access_token(uid, email)
-    _set_cookies(response, access, create_refresh_token(uid))
+    refresh = create_refresh_token(uid)
+    _set_cookies(response, access, refresh)
     doc["_id"] = res.inserted_id
     result = _clean_user(doc)
     result["access_token"] = access
+    result["refresh_token"] = refresh
     return result
 
 
@@ -116,9 +118,11 @@ async def login(body: LoginInput, request: Request, response: Response):
     await db.login_attempts.delete_one({"identifier": identifier})
     uid = str(user["_id"])
     access = create_access_token(uid, email)
-    _set_cookies(response, access, create_refresh_token(uid))
+    refresh = create_refresh_token(uid)
+    _set_cookies(response, access, refresh)
     result = _clean_user(user)
     result["access_token"] = access
+    result["refresh_token"] = refresh
     return result
 
 
@@ -136,7 +140,11 @@ async def me(user: dict = Depends(get_current_user)):
 
 @router.post("/refresh")
 async def refresh(request: Request, response: Response):
-    token = request.cookies.get("refresh_token")
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = (body or {}).get("refresh_token") or request.cookies.get("refresh_token")
     if not token:
         raise HTTPException(status_code=401, detail="Pas de token de rafraîchissement")
     try:
@@ -150,8 +158,8 @@ async def refresh(request: Request, response: Response):
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     access = create_access_token(str(user["_id"]), user["email"])
     response.set_cookie("access_token", access, httponly=True, secure=True,
-                        samesite="none", max_age=3600, path="/")
-    return {"ok": True}
+                        samesite="none", max_age=28800, path="/")
+    return {"ok": True, "access_token": access}
 
 
 async def seed_admin():

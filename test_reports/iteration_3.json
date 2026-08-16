@@ -1,0 +1,37 @@
+{
+  "summary": "Full end-to-end verification of the async generation fix (bug 502) and session persistence. Backend pytest: 12/12 passing including new async generate+polling test and refresh-token test. Frontend Playwright: full workflow login -> reload persistence -> Bloc1 CV upload -> Bloc2 job analyze -> Bloc3 async generation (POST returned pending in <1s, score-card visible after ~27s via polling, NO 502) -> Bloc4 ATS -> Bloc5 template + review + export PDF & DOCX (both downloaded). Fixed a small React render crash (defensive coercion) that appeared when the LLM occasionally returns matched/missing skills as objects {skill, source} instead of strings.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "Step3Generate MiniList (Correspondances / Manquants dans le CV)",
+        "issue": "React crash 'Objects are not valid as a React child (found: object with keys {skill, source})' when LLM returned matched/missing_hard_skills as objects instead of strings. FIXED via defensive asStr() coercion mapping x.skill|keyword|name to a string before rendering.",
+        "selector": "[data-testid=\"score-card\"] MiniList",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional) Add server-side normalisation in llm_service.generate_match to force matched_/missing_*_skills to List[str] so the UI never receives objects — the current frontend fix is defensive but the schema should be enforced backend-side."
+  ],
+  "critical_code_review_comments": [
+    "llm_service.generate_match: schema is only described in the prompt; Claude occasionally violates it (returns objects with {skill, source}). Add a post-processing step (Pydantic model or simple loop) to coerce to plain strings before writing to Mongo.",
+    "gen_router POST /generate spawns asyncio.create_task without any retry/timeout/observability. If the LLM call hangs, the session stays 'pending' forever with no watchdog. Consider a max duration + status='error' fallback.",
+    "polling every 2.5s from the browser is fine for a preview app, but consider Server-Sent Events or WebSocket for production to lower latency/bandwidth.",
+    "Access-token TTL raised to 8h and refresh_token stored in localStorage — pragmatic but weaker than httpOnly cookies. Given previous iteration already chose Bearer+localStorage for reload reliability, this is acceptable but worth flagging."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (async generation polling + refresh-token tests)",
+    "/app/frontend/src/steps/Step3Generate.jsx (defensive asStr() coercion for matched/missing skills)"
+  ],
+  "success_rate": {"backend": "100% (12/12)", "frontend": "100% (full e2e passed after Step3 render fix)"},
+  "test_credentials": "admin@matchipy.com / Matchipy2026! (works). CV at /tmp/sample_cv.pdf used and parsed correctly (Camille Dupont).",
+  "seed_data_creation": "None persistent; the pytest delete_cv step cleans up its own uploaded CV.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both reported bugs are fixed and verified: (1) 502 on Bloc 3 -> POST /generate is now async (returns status=pending in <1s), polling GET /generate/{id} reaches ready in ~25-30s; measured elapsed 27s in the browser, no 502 seen. (2) Session persistence after reload works (verified again). A latent React crash in Step3 MiniList (LLM sometimes returns skill objects) was fixed with defensive rendering — main agent should still consider enforcing the schema server-side. backend_test.py now includes async generate polling and /auth/refresh via body test.",
+  "rca of the issue": "Bug 502 RCA: the original POST /api/generate blocked the HTTP request while awaiting the Claude LLM (20-60s), longer than the edge/ingress timeout (~30s) -> 502. Fix (already applied in code before testing): insert a 'pending' session, launch _run_generation as asyncio.create_task, return immediately; frontend polls GET /generate/{id} every 2.5s until status becomes 'ready' or 'error'. Verified via curl AND browser: POST returns in ~0.1s, ready reached after ~27s, zero 502. Secondary Step3 crash RCA: LLM output schema drift — Claude sometimes returns matched_hard_skills as list of objects {skill, source} instead of list of strings. Rendering those directly inside <Badge>{x}</Badge> throws the classic React 'Objects are not valid as a React child' error, unmounts Step3 subtree, and blocks the user on the loader screen. Mitigation: added asStr() coercion in Step3Generate. Long-term: enforce schema in llm_service.generate_match."
+}

@@ -128,4 +128,44 @@ async def generate_match(cv: dict, job: dict, target_language: str, confirmed_sk
         f"SCHEMA: {schema}\n\nRenvoie uniquement le JSON."
     )
     data = _parse_json(await _ask(system, prompt, "generate-match"))
+    return _normalize_generation(data)
+
+
+def _to_str_list(value) -> list:
+    """Coerce a list that may contain strings or objects into a clean list of strings."""
+    out = []
+    for x in value or []:
+        if isinstance(x, str):
+            s = x.strip()
+        elif isinstance(x, dict):
+            s = str(x.get("skill") or x.get("keyword") or x.get("name") or "").strip()
+        else:
+            s = str(x).strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def _normalize_generation(data: dict) -> dict:
+    """Enforce the output schema so the UI always receives plain strings (Claude occasionally
+    returns skill objects instead of strings)."""
+    score = data.get("score") or {}
+    for k in ("matched_hard_skills", "missing_hard_skills", "matched_soft_skills",
+              "missing_soft_skills", "missing_keywords"):
+        score[k] = _to_str_list(score.get(k))
+    data["score"] = score
+    for r in data.get("experience_rewrites") or []:
+        for b in r.get("bullets") or []:
+            ku = []
+            for k in b.get("keywords_used") or []:
+                if isinstance(k, dict):
+                    kw = str(k.get("keyword") or k.get("skill") or "").strip()
+                    src = str(k.get("source") or "cv").strip()
+                elif isinstance(k, str):
+                    kw, src = k.strip(), "cv"
+                else:
+                    kw, src = str(k).strip(), "cv"
+                if kw:
+                    ku.append({"keyword": kw, "source": src})
+            b["keywords_used"] = ku
     return data

@@ -1,6 +1,7 @@
 """Domain routes: CV (bloc 1), Job (bloc 2), Generation (bloc 3),
 ATS (bloc 4), Export (bloc 5). All scoped to the authenticated user (multi-user ready)."""
 import io
+import asyncio
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 
@@ -125,24 +126,44 @@ async def get_job(job_id: str, user: dict = Depends(get_current_user)):
 gen_router = APIRouter(prefix="/generate", tags=["generate"])
 
 
+async def _run_generation(sid: str, cv_structured: dict, job_analysis: dict, target: str):
+    try:
+        result = await asyncio.wait_for(
+            llm_service.generate_match(cv_structured, job_analysis, target, []), timeout=180)
+        await db.sessions.update_one({"id": sid}, {"$set": {
+            "score": result.get("score", {}),
+            "experience_rewrites": result.get("experience_rewrites", []),
+            "cover_letter": result.get("cover_letter", {"paragraphs": []}),
+            "status": "ready",
+            "error": None,
+            "updated_at": now_iso(),
+        }})
+    except asyncio.TimeoutError:
+        await db.sessions.update_one({"id": sid}, {"$set": {
+            "status": "error",
+            "error": "La génération a dépassé le délai maximal (3 min). Réessayez.",
+            "updated_at": now_iso()}})
+    except Exception as e:
+        await db.sessions.update_one({"id": sid}, {"$set": {
+            "status": "error", "error": str(e)[:300], "updated_at": now_iso()}})
+
+
 @gen_router.post("")
 async def generate(body: GenerateInput, user: dict = Depends(get_current_user)):
     cv = await _get_cv(body.cv_id, user)
     job = await _get_job(body.job_id, user)
     target = body.target_language or job["analysis"].get("language", "fr")
-    try:
-        result = await llm_service.generate_match(cv["structured"], job["analysis"], target, [])
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Échec de la génération IA : {str(e)[:150]}")
     doc = {"id": new_id(), "user_id": user["id"], "cv_id": body.cv_id, "job_id": body.job_id,
            "target_language": target,
-           "score": result.get("score", {}),
-           "experience_rewrites": result.get("experience_rewrites", []),
-           "cover_letter": result.get("cover_letter", {"paragraphs": []}),
+           "score": {}, "experience_rewrites": [], "cover_letter": {"paragraphs": []},
            "confirmed_skills": [],
            "decisions": {"rewrites": [], "cover_letter_accepted": True},
+           "status": "pending", "error": None,
            "created_at": now_iso(), "updated_at": now_iso()}
     await db.sessions.insert_one(doc)
+    # Launch the long LLM work in the background so the HTTP request returns immediately
+    # (avoids the edge/proxy timeout -> 502 on long generations).
+    asyncio.create_task(_run_generation(doc["id"], cv["structured"], job["analysis"], target))
     return _strip(doc)
 
 

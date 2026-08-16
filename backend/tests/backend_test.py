@@ -5,6 +5,7 @@ generation, ATS check (Affinda fallback), export PDF/DOCX, RGPD delete.
 Uses the public preview URL so we test the same surface as the browser."""
 import os
 import io
+import time
 import requests
 import pytest
 
@@ -49,6 +50,31 @@ def test_me_authenticated(session):
 def test_me_unauthenticated():
     r = requests.get(f"{BASE_URL}/api/auth/me", timeout=15)
     assert r.status_code == 401
+
+
+def test_login_returns_tokens():
+    r = requests.post(f"{BASE_URL}/api/auth/login",
+                      json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}, timeout=15)
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("access_token")
+    assert body.get("refresh_token")
+
+
+def test_refresh_via_body():
+    r = requests.post(f"{BASE_URL}/api/auth/login",
+                      json={"email": ADMIN_EMAIL, "password": ADMIN_PASSWORD}, timeout=15)
+    refresh = r.json()["refresh_token"]
+    r2 = requests.post(f"{BASE_URL}/api/auth/refresh",
+                       json={"refresh_token": refresh}, timeout=15)
+    assert r2.status_code == 200, r2.text
+    new_access = r2.json().get("access_token")
+    assert new_access
+    # Use it against /me
+    r3 = requests.get(f"{BASE_URL}/api/auth/me",
+                      headers={"Authorization": f"Bearer {new_access}"}, timeout=15)
+    assert r3.status_code == 200
+    assert r3.json()["email"] == ADMIN_EMAIL
 
 
 # ---------- Templates ----------
@@ -96,15 +122,32 @@ def job_id(session):
     return doc["id"]
 
 
-# ---------- Generate ----------
+# ---------- Generate (async + polling) ----------
 @pytest.fixture(scope="module")
 def session_id(session, cv_id, job_id):
+    t0 = time.time()
     r = session.post(f"{BASE_URL}/api/generate",
-                     json={"cv_id": cv_id, "job_id": job_id}, timeout=180)
+                     json={"cv_id": cv_id, "job_id": job_id}, timeout=15)
+    elapsed = time.time() - t0
     assert r.status_code == 200, r.text
     doc = r.json()
-    assert doc["score"]["overall"] >= 0
-    return doc["id"]
+    # POST must return quickly (no 502, no long block)
+    assert elapsed < 10, f"POST /generate too slow: {elapsed:.1f}s (should be async)"
+    assert doc["status"] == "pending"
+    sid = doc["id"]
+    # Poll until ready
+    deadline = time.time() + 120
+    final = None
+    while time.time() < deadline:
+        time.sleep(2.5)
+        r2 = session.get(f"{BASE_URL}/api/generate/{sid}", timeout=15)
+        assert r2.status_code == 200
+        final = r2.json()
+        if final["status"] in ("ready", "error"):
+            break
+    assert final and final["status"] == "ready", f"Generation did not finish: {final}"
+    assert final["score"]["overall"] >= 0
+    return sid
 
 
 def test_confirm_skills(session, session_id):

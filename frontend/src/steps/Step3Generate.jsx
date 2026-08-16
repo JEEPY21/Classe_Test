@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -44,6 +44,8 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
   const [coverAccepted, setCoverAccepted] = useState(true);
   const [savingSkills, setSavingSkills] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [genError, setGenError] = useState("");
+  const pollRef = useRef(null);
 
   const initAccept = (s) => {
     const map = {};
@@ -51,32 +53,68 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
     setAccepted(map);
   };
 
+  const applyReady = (s) => {
+    setSession(s);
+    initAccept(s);
+    setConfirmed(new Set(s.confirmed_skills || []));
+    setLoading(false);
+  };
+
+  const startPolling = (sid) => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(async () => {
+      try {
+        const { data } = await api.getSession(sid);
+        if (data.status === "ready") {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          applyReady(data);
+        } else if (data.status === "error") {
+          clearInterval(pollRef.current);
+          pollRef.current = null;
+          setLoading(false);
+          setGenError(data.error || "La génération a échoué.");
+          toast.error("Échec de la génération IA");
+        }
+      } catch (err) {
+        // transient error during polling — keep trying
+      }
+    }, 2500);
+  };
+
   const run = async () => {
     if (!cv || !job) { toast.error("Complétez d'abord le CV et l'offre."); return; }
     setLoading(true);
+    setGenError("");
     try {
       const { data } = await api.generate({ cv_id: cv.id, job_id: job.id, target_language: job.analysis?.language });
-      setSession(data);
-      initAccept(data);
-      setConfirmed(new Set(data.confirmed_skills || []));
+      if (data.status === "ready") { applyReady(data); return; }
+      startPolling(data.id);
     } catch (err) {
-      toast.error(formatApiError(err.response?.data?.detail));
-    } finally {
       setLoading(false);
+      setGenError(formatApiError(err.response?.data?.detail));
+      toast.error(formatApiError(err.response?.data?.detail));
     }
   };
 
   useEffect(() => {
     if (!session && cv && job) run();
-    else if (session) initAccept(session);
+    else if (session && session.status === "ready") { initAccept(session); }
+    else if (session && session.status === "pending") { setLoading(true); startPolling(session.id); }
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const score = session?.score || {};
+  // Defensive coercion: LLM may occasionally return objects like {skill, source} instead of plain strings.
+  const asStr = (x) => (typeof x === "string" ? x : (x && (x.skill || x.keyword || x.name)) || "");
   const missing = useMemo(() => {
     const all = [...(score.missing_hard_skills || []), ...(score.missing_soft_skills || []), ...(score.missing_keywords || [])];
-    return [...new Set(all.filter(Boolean))];
+    return [...new Set(all.map(asStr).filter(Boolean))];
   }, [score]);
+  const matched = useMemo(() => (
+    [...(score.matched_hard_skills || []), ...(score.matched_soft_skills || [])].map(asStr).filter(Boolean)
+  ), [score]);
 
   const toggleBullet = (expId, i) => {
     setAccepted((prev) => {
@@ -120,16 +158,28 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
     }
   };
 
-  if (loading || !session) {
+  const notReady = loading || !session || session.status !== "ready";
+  if (notReady) {
     return (
       <div className="animate-fade-up">
         <span className="text-xs font-semibold uppercase tracking-[0.2em] text-brand">Bloc 3</span>
         <h1 className="font-heading text-3xl font-bold tracking-tight mt-1">Génération contrôlée</h1>
         <div className="border border-border rounded-2xl bg-white p-12 mt-6 text-center">
-          <Loader2 className="w-8 h-8 text-brand animate-spin mx-auto mb-3" />
-          <p className="font-medium">Croisement de votre CV avec l'offre…</p>
-          <p className="text-sm text-muted-foreground mt-1">Reformulation ligne par ligne, sans rien inventer.</p>
-          {!cv || !job ? <p className="text-sm text-destructive mt-4">CV ou offre manquant — revenez aux étapes précédentes.</p> : null}
+          {genError ? (
+            <>
+              <AlertTriangle className="w-8 h-8 text-destructive mx-auto mb-3" aria-hidden="true" />
+              <p className="font-medium">La génération n'a pas abouti.</p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-md mx-auto">{genError}</p>
+              <Button className="bg-primary mt-5" onClick={run} data-testid="generate-retry-btn">Réessayer</Button>
+            </>
+          ) : (
+            <>
+              <Loader2 className="w-8 h-8 text-brand animate-spin mx-auto mb-3" />
+              <p className="font-medium">Croisement de votre CV avec l'offre…</p>
+              <p className="text-sm text-muted-foreground mt-1">Reformulation ligne par ligne, sans rien inventer. Cela peut prendre jusqu'à une minute.</p>
+              {!cv || !job ? <p className="text-sm text-destructive mt-4">CV ou offre manquant — revenez aux étapes précédentes.</p> : null}
+            </>
+          )}
         </div>
       </div>
     );
@@ -164,7 +214,7 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
           </div>
         )}
         <div className="grid sm:grid-cols-2 gap-3 mt-4">
-          <MiniList title="Correspondances" items={[...(score.matched_hard_skills || []), ...(score.matched_soft_skills || [])]} tone="ok" />
+          <MiniList title="Correspondances" items={matched} tone="ok" />
           <MiniList title="Manquants dans le CV" items={missing} tone="warn" />
         </div>
       </div>

@@ -5,12 +5,46 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 const client = axios.create({ baseURL: API, withCredentials: true });
 
 export const TOKEN_KEY = "matchipy_token";
+export const REFRESH_KEY = "matchipy_refresh";
 
 client.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
+
+let refreshingPromise = null;
+client.interceptors.response.use(
+  (r) => r,
+  async (error) => {
+    const original = error.config;
+    const status = error.response?.status;
+    const isAuthCall = original?.url?.includes("/auth/");
+    if (status === 401 && original && !original._retry && !isAuthCall) {
+      original._retry = true;
+      const rt = localStorage.getItem(REFRESH_KEY);
+      if (!rt) {
+        localStorage.removeItem(TOKEN_KEY);
+        return Promise.reject(error);
+      }
+      try {
+        if (!refreshingPromise)
+          refreshingPromise = axios.post(`${API}/auth/refresh`, { refresh_token: rt }, { withCredentials: true });
+        const { data } = await refreshingPromise;
+        refreshingPromise = null;
+        localStorage.setItem(TOKEN_KEY, data.access_token);
+        original.headers.Authorization = `Bearer ${data.access_token}`;
+        return client(original);
+      } catch (e) {
+        refreshingPromise = null;
+        localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(REFRESH_KEY);
+        return Promise.reject(error);
+      }
+    }
+    return Promise.reject(error);
+  }
+);
 
 export function formatApiError(detail) {
   if (detail == null) return "Une erreur est survenue. Réessayez.";
