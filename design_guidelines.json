@@ -1,0 +1,104 @@
+{
+  "theme": {
+    "archetype": "Swiss & High-Contrast",
+    "mode": "light",
+    "description": "Serious, reliable, modern, transparent, clear, authoritative. Focuses on data clarity, trust, and validation. Perfect for an ATS optimization tool.",
+    "psychology": "Instills trust and precision. The lack of visual clutter emphasizes the importance of the data and user control."
+  },
+  "typography": {
+    "headings": "Outfit",
+    "body": "Inter",
+    "rules": "Strict hierarchy. Avoid centered text for long forms. Use tight letter spacing for headings.",
+    "scale": {
+      "h1": "text-4xl sm:text-5xl font-semibold tracking-tight text-slate-900",
+      "h2": "text-2xl sm:text-3xl font-medium tracking-tight text-slate-800",
+      "h3": "text-xl font-medium text-slate-800",
+      "body": "text-base leading-relaxed text-slate-600",
+      "overline": "text-xs font-semibold uppercase tracking-[0.2em] text-slate-500"
+    }
+  },
+  "colors": {
+    "primary": "#0F172A",
+    "primary_hover": "#334155",
+    "accent": "#2563EB",
+    "background": "#FFFFFF",
+    "surface": "#F8FAFC",
+    "border": "#E2E8F0",
+    "text_main": "#0F172A",
+    "text_muted": "#64748B",
+    "functional": {
+      "success": "#10B981",
+      "warning": "#F59E0B",
+      "danger": "#EF4444",
+      "diff_added_bg": "#ECFDF5",
+      "diff_added_text": "#065F46",
+      "diff_deleted_bg": "#FEF2F2",
+      "diff_deleted_text": "#991B1B"
+    }
+  },
+  "layout": {
+    "structure": "Mobile-first responsive. Desktop: Sticky vertical sidebar stepper (left) with scrollable main content area (right). Mobile: Horizontal condensed stepper at the top.",
+    "spacing": "Generous. p-8 for main cards. gap-8 for form sections. Use p-12 for empty states.",
+    "container": "max-w-7xl mx-auto",
+    "grid": "Bento-style grids for dashboard/analytics. Mode B (High Density) for ATS Quality report."
+  },
+  "components": {
+    "stepper": "Collapsible vertical stepper on desktop. Persist state between steps. Clear numbered labels.",
+    "diff_view": "CSS Grid or Flexbox container for side-by-side (desktop) or stacked (mobile) comparison. Align paired changes in the same row. Do not use independent scroll containers.",
+    "match_score": "Radial progress gauges and horizontal bars for sub-criteria. High contrast.",
+    "ats_report": "Split pane layout. Left: Resume visual. Right: Parsed fields with status chips (Read/Missed).",
+    "buttons": "Solid flat colors with 1px border. Focus states: ring-2 ring-offset-2 ring-accent. Pill-shaped or subtle rounded-md.",
+    "forms": "Left-aligned labels. Use Shadcn Input, Textarea. Inline validation errors.",
+    "checklists": "Custom checkbox styles for the 'Missing Skills' confirmation. Emphasize the 'Confirmed by user' state."
+  },
+  "visual_enhancers": {
+    "borders": "1px solid borders (border-slate-200) for structural division instead of heavy shadows. Use flat, sharp UI.",
+    "shadows": "Minimal. Soft ambient shadow for floating elements like the Before/After review modal.",
+    "glassmorphism": "Avoid in data-heavy areas to maintain clarity. Use only for sticky bottom action bars (backdrop-blur-xl bg-white/80 border-t border-slate-200).",
+    "textures": "Subtle noise on empty state backgrounds to prevent clinical feel."
+  },
+  "accessibility": {
+    "contrast": "Minimum 4.5:1. Do not rely solely on color for diffs; use (+)/(-) icons and hidden text labels.",
+    "focus": "Clear focus rings for keyboard navigation.",
+    "screen_readers": "Use aria-live for step transitions.",
+    "motion": "Respect prefers-reduced-motion."
+  },
+  "media": {
+    "icons": "Use 'lucide-react' for clean, neutral line icons. Add aria-hidden='true'.",
+    "image_urls": [
+      {
+        "url": "https://images.unsplash.com/photo-1698047681432-006d2449c631?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwxfHxyZXN1bWUlMjBjdiUyMGFwcGxpY2F0aW9ufGVufDB8fHx8MTc4Njg3Mzc3Nnww&ixlib=rb-4.1.0&q=85",
+        "description": "Woman reading a resume at a table. Can be used for landing page or login screen.",
+        "category": "hero"
+      },
+      {
+        "url": "https://images.unsplash.com/photo-1635253548172-d82ffe76449d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwyfHxyZXN1bWUlMjBjdiUyMGFwcGxpY2F0aW9ufGVufDB8fHx8MTc4Njg3Mzc3Nnww&ixlib=rb-4.1.0&q=85",
+        "description": "Glasses on a pile of papers. Can be used for ATS/Parsing section background or placeholder.",
+        "category": "feature"
+      }
+    ]
+  },
+  "testing": {
+    "data_testid": "Mandatory on all interactive elements. e.g., data-testid='upload-cv-dropzone', data-testid='accept-diff-button', data-testid='export-pdf-button'."
+  },
+  "blocks_instructions": {
+    "block_1": "CV Extraction: Drag and drop zone for PDF/DOCX. Extracted JSON should be presented as an editable form (Identity, Experience, Education, Skills), NOT as a raw JSON string.",
+    "block_2": "Job Offer Analysis: Large textarea for pasting. Display extracted data (Title, Hard/Soft Skills, Keywords) as clear taxonomy chips in a bento grid.",
+    "block_3": "Controlled Generation: Present line-by-line diffs (Before/After) with accept/reject buttons. Missing skills checklist requires explicit user confirmation. Transparent scorecard.",
+    "block_4": "ATS Quality Control: Display Affinda parsing results. Highlight well-read vs poorly-read fields clearly. Alert user if critical data is missing.",
+    "block_5": "Layout & Export: Carousel or grid of 2-3 minimal, ATS-friendly HTML/CSS templates. Mandatory before/after full preview before enabling PDF/DOCX export."
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "No generic centered layouts; use clean left-aligned or grid-based structural layouts.",
+    "Use 1px borders to separate content instead of over-using cards (Flat Solid surfaces).",
+    "Incorporate subtle micro-interactions for button presses and hover states (e.g., -translate-y-px).",
+    "Do not use dark colors as gradients.",
+    "NEVER use generic placeholder text; use contextual dummy data in French (e.g., 'Développeur Fullstack', 'Paris').",
+    "Use Sonner for toasts.",
+    "Do not apply global transitions like 'all'. Apply to specific properties.",
+    "Always ensure high contrast ratios, especially over colored backgrounds or diff blocks.",
+    "The UI is primarily in French. Ensure all static labels, buttons, and placeholders are in French.",
+    "Avoid the generic 'Vercel-look'. Customize Shadcn components to feel like a premium, trustworthy tool."
+  ],
+  "instructions_to_main_agent": "Implement the 5-step workflow utilizing a robust state management approach so data persists between steps. The layout should inspire trust (Swiss & High-Contrast). Ensure the Diff UI is built with CSS Grid/Flexbox so it stacks correctly on mobile and aligns line-by-line. Use standard Shadcn UI components and customize spacing, borders, and colors. Do not hallucinate fields. Follow accessibility best practices for the diff view and forms."
+}
