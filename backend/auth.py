@@ -85,9 +85,12 @@ async def register(body: RegisterInput, response: Response):
            "name": body.name, "role": "user", "created_at": datetime.now(timezone.utc).isoformat()}
     res = await db.users.insert_one(doc)
     uid = str(res.inserted_id)
-    _set_cookies(response, create_access_token(uid, email), create_refresh_token(uid))
+    access = create_access_token(uid, email)
+    _set_cookies(response, access, create_refresh_token(uid))
     doc["_id"] = res.inserted_id
-    return _clean_user(doc)
+    result = _clean_user(doc)
+    result["access_token"] = access
+    return result
 
 
 @router.post("/login")
@@ -112,8 +115,11 @@ async def login(body: LoginInput, request: Request, response: Response):
 
     await db.login_attempts.delete_one({"identifier": identifier})
     uid = str(user["_id"])
-    _set_cookies(response, create_access_token(uid, email), create_refresh_token(uid))
-    return _clean_user(user)
+    access = create_access_token(uid, email)
+    _set_cookies(response, access, create_refresh_token(uid))
+    result = _clean_user(user)
+    result["access_token"] = access
+    return result
 
 
 @router.post("/logout")

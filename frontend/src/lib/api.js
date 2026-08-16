@@ -4,6 +4,14 @@ const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const client = axios.create({ baseURL: API, withCredentials: true });
 
+export const TOKEN_KEY = "matchipy_token";
+
+client.interceptors.request.use((config) => {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
+
 export function formatApiError(detail) {
   if (detail == null) return "Une erreur est survenue. Réessayez.";
   if (typeof detail === "string") return detail;

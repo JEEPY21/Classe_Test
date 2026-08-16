@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only auth persistence testing after Bearer-token fix. Ran full e2e via Playwright on the public URL: register -> reload -> logout -> re-login -> reload -> admin login -> reload -> protected routes. All 10 scenarios PASS. The reported bug (session lost after F5 due to /api/auth/me 401) is FIXED via Authorization Bearer header from localStorage.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Storing JWT access token in localStorage is XSS-exposed. Consider keeping cookie-only auth and instead fixing the SameSite/Partitioned cookie issue at the ingress (SameSite=None; Secure; Partitioned works cross-site but requires the browser to opt-in). Bearer+localStorage is a pragmatic fix but weaker than httpOnly cookies.",
+    "AuthContext initial state uses null=checking, false=anon, obj=logged-in — works but tri-state on the same variable is a maintenance smell; a separate loading boolean would be clearer.",
+    "api.js interceptor always attaches Authorization if token present, including for /auth/login and /auth/register — harmless but noisy; consider skipping."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend only)", "frontend": "100% (10/10 scenarios)"},
+  "test_credentials": "admin@matchipy.com / Matchipy2026! (works). New users created via /register also work.",
+  "seed_data_creation": "Created one throwaway user testuser<ts>@test.com / Password123!",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Auth bug fixed. Token stored under localStorage key 'matchipy_token'. All API calls include Authorization Bearer via axios interceptor in /app/frontend/src/lib/api.js. Backend accepts both cookie and Bearer.",
+  "rca of the issue": "Cookies with SameSite=None; Partitioned were not resent by the browser after a full page reload on the emergentagent.com preview domain, causing /api/auth/me to return 401 and AuthContext to reset to anonymous, redirecting the user to /login. Fix: also return access_token in login/register response body, store it in localStorage ('matchipy_token'), and attach it via axios request interceptor as Authorization: Bearer. Verified via Playwright: register+reload, login+reload, admin+reload all keep the user on /dashboard; logout clears the token; protected routes redirect to /login when localStorage is empty."
+}
