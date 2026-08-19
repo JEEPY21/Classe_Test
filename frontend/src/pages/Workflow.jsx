@@ -46,7 +46,7 @@ export default function Workflow() {
             <Step4ATS session={session} templateId={templateId} onNext={() => go(5)} onBack={() => go(3)} />
           )}
           {step === 5 && (
-            <Step5Export session={session} templateId={templateId} setTemplateId={setTemplateId} onBack={() => go(4)} />
+            <Step5Export session={session} job={job} templateId={templateId} setTemplateId={setTemplateId} onBack={() => go(4)} />
           )}
         </section>
       </main>

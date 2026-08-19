@@ -9,7 +9,8 @@ import requests
 
 from extraction import extract_text_from_pdf
 
-AFFINDA_BASE = "https://api.affinda.com"
+AFFINDA_BASE = os.environ.get("AFFINDA_BASE_URL", "https://api.eu1.affinda.com")
+_COLLECTION_CACHE = None
 
 
 def _norm(s: str) -> str:
@@ -76,49 +77,97 @@ def internal_readability_check(pdf_bytes: bytes, cv: dict) -> dict:
     }
 
 
+def _get_collection(headers: dict) -> str:
+    """Resolve (and cache) the Affinda collection used for resume parsing. Auto-provisions the
+    organization's workspace + a resume-extractor collection on first use."""
+    global _COLLECTION_CACHE
+    if _COLLECTION_CACHE:
+        return _COLLECTION_CACHE
+    env_col = os.environ.get("AFFINDA_COLLECTION")
+    if env_col:
+        _COLLECTION_CACHE = env_col
+        return env_col
+
+    def _items(resp):
+        j = resp.json()
+        return j.get("results", j) if isinstance(j, dict) else j
+
+    orgs = _items(requests.get(f"{AFFINDA_BASE}/v3/organizations", headers=headers, timeout=25))
+    org = orgs[0].get("identifier")
+    ws_items = _items(requests.get(f"{AFFINDA_BASE}/v3/workspaces", headers=headers,
+                                   params={"organization": org}, timeout=25))
+    ws = next((w.get("identifier") for w in ws_items if w.get("name") == "Matchipy"), None)
+    if not ws:
+        ws = requests.post(f"{AFFINDA_BASE}/v3/workspaces", headers=headers,
+                           json={"organization": org, "name": "Matchipy"}, timeout=30).json()["identifier"]
+    col_items = _items(requests.get(f"{AFFINDA_BASE}/v3/collections", headers=headers,
+                                    params={"workspace": ws}, timeout=25))
+    col = next((c.get("identifier") for c in col_items), None)
+    if not col:
+        col = requests.post(f"{AFFINDA_BASE}/v3/collections", headers=headers,
+                            json={"workspace": ws, "name": "CV", "extractor": "resume"},
+                            timeout=30).json()["identifier"]
+    _COLLECTION_CACHE = col
+    return col
+
+
 def affinda_parse(pdf_bytes: bytes, filename: str) -> dict:
-    """Attempt a live Affinda parse. Returns {available: bool, ...}."""
+    """Live Affinda parse. Returns the RAW parsed result mapped to detected/missing fields
+    (no AI reprocessing). Returns {available: bool, ...}."""
     key = os.environ.get("AFFINDA_API_KEY")
     if not key:
         return {"available": False, "reason": "Aucune clé Affinda configurée."}
     headers = {"Authorization": f"Bearer {key}"}
     try:
-        ws = requests.get(f"{AFFINDA_BASE}/v3/workspaces", headers=headers, timeout=25)
-        if ws.status_code != 200:
-            return {"available": False,
-                    "reason": f"Affinda a refusé la clé API (HTTP {ws.status_code}). "
-                              f"Vérifiez le token dans les paramètres Affinda."}
-        workspaces = ws.json()
-        items = workspaces.get("results", workspaces) if isinstance(workspaces, dict) else workspaces
-        if not items:
-            return {"available": False, "reason": "Aucun workspace Affinda disponible pour cette clé."}
-        workspace_id = items[0].get("identifier") or items[0].get("id")
+        collection = _get_collection(headers)
         files = {"file": (filename, pdf_bytes, "application/pdf")}
-        data = {"workspace": workspace_id, "wait": "true", "deleteAfterParse": "true"}
+        data = {"collection": collection, "wait": "true"}
         resp = requests.post(f"{AFFINDA_BASE}/v3/documents", headers=headers,
-                             files=files, data=data, timeout=90)
+                             files=files, data=data, timeout=120)
         if resp.status_code not in (200, 201):
-            return {"available": False, "reason": f"Erreur de parsing Affinda (HTTP {resp.status_code})."}
-        parsed = resp.json().get("data", {})
+            return {"available": False,
+                    "reason": f"Affinda a refusé la requête (HTTP {resp.status_code})."}
+        body = resp.json()
+        parsed = body.get("data", {}) or {}
+        doc_id = (body.get("meta") or {}).get("identifier")
+
         fields = []
 
-        def add(label, val):
-            fields.append({"label": label, "value": str(val) if val else "",
-                           "status": "read" if val else "missed", "critical": True})
+        def add(label, val, critical=True):
+            fields.append({"label": label, "value": str(val) if val not in (None, "", []) else "",
+                           "status": "read" if val not in (None, "", [], 0) else "missed",
+                           "critical": critical})
 
-        add("Nom", (parsed.get("name") or {}).get("raw") if isinstance(parsed.get("name"), dict) else parsed.get("name"))
+        name = parsed.get("name")
+        add("Nom", (name or {}).get("raw") if isinstance(name, dict) else name)
         add("Email", (parsed.get("emails") or [None])[0])
-        add("Téléphone", (parsed.get("phoneNumbers") or [None])[0])
+        add("Téléphone", (parsed.get("phoneNumbers") or [None])[0], critical=False)
         work = parsed.get("workExperience") or []
-        add("Expériences détectées", len(work) if work else "")
+        add("Expériences détectées", len(work) if work else 0)
+        edu = parsed.get("education") or []
+        add("Formations détectées", len(edu) if edu else 0, critical=False)
         skills = parsed.get("skills") or []
-        add("Compétences détectées", len(skills) if skills else "")
+        add("Compétences détectées", len(skills) if skills else 0, critical=False)
+
+        # RGPD / data minimisation: delete the uploaded document from Affinda after parsing.
+        if doc_id:
+            try:
+                requests.delete(f"{AFFINDA_BASE}/v3/documents/{doc_id}", headers=headers, timeout=20)
+            except Exception:
+                pass
+
         read = sum(1 for f in fields if f["status"] == "read")
+        detected = [f["label"] for f in fields if f["status"] == "read"]
+        missing = [f["label"] for f in fields if f["status"] == "missed"]
+        critical_missed = [f["label"] for f in fields if f["status"] == "missed" and f["critical"]]
         return {"available": True, "source": "affinda",
                 "score": round((read / len(fields)) * 100) if fields else 0,
-                "fields": fields, "raw": {"work_count": len(work), "skills_count": len(skills)}}
+                "total_fields": len(fields), "read_fields": read,
+                "fields": fields, "detected": detected, "missing": missing,
+                "critical_issues": critical_missed, "has_text_layer": True,
+                "raw": {"work_count": len(work), "skills_count": len(skills), "education_count": len(edu)}}
     except Exception as e:
-        return {"available": False, "reason": f"Affinda indisponible : {str(e)[:120]}"}
+        return {"available": False, "reason": f"Affinda indisponible : {str(e)[:150]}"}
 
 
 def run_ats_check(pdf_bytes: bytes, filename: str, cv: dict) -> dict:

@@ -83,6 +83,12 @@ export const api = {
   templates: () => client.get("/export/templates"),
   preview: (data) => client.post("/export/preview", data),
   download: (data) => client.post("/export/download", data, { responseType: "blob" }),
+
+  createApplication: (data) => client.post("/applications", data),
+  listApplications: (statut) => client.get("/applications", { params: statut ? { statut } : {} }),
+  updateApplication: (id, data) => client.put(`/applications/${id}`, data),
+  deleteApplication: (id) => client.delete(`/applications/${id}`),
+  downloadApplicationDoc: (id, data) => client.post(`/applications/${id}/download`, data, { responseType: "blob" }),
 };
 
 export default client;

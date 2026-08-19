@@ -106,3 +106,25 @@ class RewriteDecision(BaseModel):
 class DecisionsInput(BaseModel):
     rewrites: List[RewriteDecision] = []
     cover_letter_accepted: Optional[bool] = None
+
+
+# ---------- Application tracking (Bloc 3bis) ----------
+APPLICATION_STATUSES = ["envoyée", "relance", "entretien", "refusée", "acceptée"]
+
+
+class ApplicationCreate(BaseModel):
+    session_id: str
+    poste: str = ""
+    entreprise: str = ""
+    statut: Literal["envoyée", "relance", "entretien", "refusée", "acceptée"] = "envoyée"
+    date_candidature: str = ""
+    notes: str = ""
+    template_id: str = "classic"
+
+
+class ApplicationUpdate(BaseModel):
+    poste: Optional[str] = None
+    entreprise: Optional[str] = None
+    statut: Optional[Literal["envoyée", "relance", "entretien", "refusée", "acceptée"]] = None
+    date_candidature: Optional[str] = None
+    notes: Optional[str] = None

@@ -8,7 +8,8 @@ from fastapi.responses import StreamingResponse
 from db import db
 from auth import get_current_user
 from models import (CVUpdateInput, JobOfferInput, GenerateInput,
-                    ConfirmSkillsInput, DecisionsInput, StructuredCV, new_id, now_iso)
+                    ConfirmSkillsInput, DecisionsInput, StructuredCV, new_id, now_iso,
+                    ApplicationCreate, ApplicationUpdate)
 import llm_service
 import export_service
 import ats_service
@@ -284,8 +285,96 @@ async def download(payload: dict, user: dict = Depends(get_current_user)):
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+# ---------------- BLOC 3bis: Application tracking ----------------
+app_router = APIRouter(prefix="/applications", tags=["applications"])
+
+
+def _render_doc(final_cv, cover_paragraphs, template_id, lang, doc_type, fmt):
+    docx_media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    name = (final_cv.get("identity", {}).get("full_name") or "cv").replace(" ", "_")
+    if doc_type == "cover_letter":
+        identity = final_cv.get("identity", {})
+        if fmt == "docx":
+            return export_service.build_cover_letter_docx(identity, cover_paragraphs, lang), docx_media, f"Lettre_{name}.docx"
+        html = export_service.render_cover_letter_html(identity, cover_paragraphs, lang)
+        return export_service.html_to_pdf(html), "application/pdf", f"Lettre_{name}.pdf"
+    if fmt == "docx":
+        return export_service.build_docx(final_cv, lang), docx_media, f"CV_{name}.docx"
+    html = export_service.render_html(final_cv, template_id, lang)
+    return export_service.html_to_pdf(html), "application/pdf", f"CV_{name}.pdf"
+
+
+@app_router.post("")
+async def create_application(body: ApplicationCreate, user: dict = Depends(get_current_user)):
+    session = await _get_session(body.session_id, user)
+    cv = await _get_cv(session["cv_id"], user)
+    # Snapshot the reviewed CV + cover letter so the application stays intact even if the
+    # session or source CV is later modified/deleted.
+    final_cv = export_service.build_final_cv(cv["structured"], session)
+    doc = {"id": new_id(), "user_id": user["id"], "session_id": body.session_id,
+           "cv_id": session["cv_id"], "job_id": session.get("job_id"),
+           "poste": body.poste, "entreprise": body.entreprise,
+           "statut": body.statut,
+           "date_candidature": body.date_candidature or now_iso()[:10],
+           "notes": body.notes, "template_id": body.template_id,
+           "target_language": session.get("target_language", "fr"),
+           "snapshot": {"final_cv": final_cv,
+                        "cover_letter": session.get("cover_letter", {"paragraphs": []})},
+           "created_at": now_iso(), "updated_at": now_iso()}
+    await db.applications.insert_one(doc)
+    return _strip(doc)
+
+
+@app_router.get("")
+async def list_applications(statut: str = None, user: dict = Depends(get_current_user)):
+    query = {"user_id": user["id"]}
+    if statut:
+        query["statut"] = statut
+    docs = await db.applications.find(query, {"_id": 0, "snapshot": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+@app_router.put("/{app_id}")
+async def update_application(app_id: str, body: ApplicationUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.applications.find_one({"id": app_id, "user_id": user["id"]})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Candidature introuvable")
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updates["updated_at"] = now_iso()
+    await db.applications.update_one({"id": app_id, "user_id": user["id"]}, {"$set": updates})
+    doc = await db.applications.find_one({"id": app_id, "user_id": user["id"]}, {"_id": 0, "snapshot": 0})
+    return doc
+
+
+@app_router.delete("/{app_id}")
+async def delete_application(app_id: str, user: dict = Depends(get_current_user)):
+    res = await db.applications.delete_one({"id": app_id, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Candidature introuvable")
+    return {"deleted": True}
+
+
+@app_router.post("/{app_id}/download")
+async def download_application_doc(app_id: str, payload: dict, user: dict = Depends(get_current_user)):
+    doc = await db.applications.find_one({"id": app_id, "user_id": user["id"]})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Candidature introuvable")
+    doc_type = payload.get("doc_type", "cv")
+    fmt = payload.get("format", "pdf")
+    snap = doc.get("snapshot", {})
+    final_cv = snap.get("final_cv", {})
+    cover = (snap.get("cover_letter") or {}).get("paragraphs", [])
+    if doc_type == "cover_letter" and not cover:
+        raise HTTPException(status_code=400, detail="Aucune lettre attachée à cette candidature.")
+    content, media, filename = _render_doc(final_cv, cover, doc.get("template_id", "classic"),
+                                           doc.get("target_language", "fr"), doc_type, fmt)
+    return StreamingResponse(io.BytesIO(content), media_type=media,
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 router.include_router(cv_router)
 router.include_router(job_router)
 router.include_router(gen_router)
 router.include_router(ats_router)
 router.include_router(export_router)
+router.include_router(app_router)

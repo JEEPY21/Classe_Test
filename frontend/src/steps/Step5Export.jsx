@@ -1,10 +1,22 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Loader2, ArrowLeft, FileText, FileType2, Download, Eye, CheckCircle2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogTrigger,
+} from "@/components/ui/dialog";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
+import { Loader2, ArrowLeft, FileText, FileType2, Download, Eye, CheckCircle2, BriefcaseBusiness } from "lucide-react";
 import { toast } from "sonner";
+
+const STATUSES = ["envoyée", "relance", "entretien", "refusée", "acceptée"];
 
 function saveBlob(blob, filename) {
   const url = window.URL.createObjectURL(blob);
@@ -13,12 +25,37 @@ function saveBlob(blob, filename) {
   a.remove(); window.URL.revokeObjectURL(url);
 }
 
-export default function Step5Export({ session, templateId, setTemplateId, onBack }) {
+export default function Step5Export({ session, job, templateId, setTemplateId, onBack }) {
+  const navigate = useNavigate();
   const [templates, setTemplates] = useState([]);
   const [preview, setPreview] = useState(null);
   const [reviewed, setReviewed] = useState(false);
   const [downloading, setDownloading] = useState("");
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({ poste: "", entreprise: "", statut: "envoyée", date_candidature: new Date().toISOString().slice(0, 10), notes: "" });
   const hasCover = (preview?.cover_letter?.paragraphs || []).length > 0;
+
+  useEffect(() => {
+    setForm((f) => ({
+      ...f,
+      poste: f.poste || job?.analysis?.job_title || "",
+      entreprise: f.entreprise || job?.analysis?.company || "",
+    }));
+  }, [job]);
+
+  const saveApplication = async () => {
+    setSaving(true);
+    try {
+      await api.createApplication({ session_id: session.id, template_id: templateId, ...form });
+      toast.success("Candidature enregistrée dans le suivi");
+      setSaveOpen(false);
+    } catch (err) {
+      toast.error(formatApiError(err.response?.data?.detail));
+    } finally {
+      setSaving(false);
+    }
+  };
 
   useEffect(() => { api.templates().then((r) => setTemplates(r.data)).catch(() => {}); }, []);
   useEffect(() => {
@@ -124,6 +161,44 @@ export default function Step5Export({ session, templateId, setTemplateId, onBack
           </div>
         </div>
         {!reviewed && <p className="text-xs text-amber-600 mt-3">Validez la relecture ci-dessus pour activer les téléchargements.</p>}
+      </div>
+
+      {/* Save application (Bloc 3bis) */}
+      <div className="border border-border rounded-2xl bg-white p-5" data-testid="save-application-card">
+        <div className="flex items-center gap-2 mb-1"><BriefcaseBusiness className="w-5 h-5 text-brand" aria-hidden="true" /><h3 className="font-heading font-semibold text-lg">Suivi de candidature</h3></div>
+        <p className="text-sm text-muted-foreground mb-4">Enregistrez cette candidature en un clic : le CV et la lettre générés y sont attachés automatiquement.</p>
+        <div className="flex flex-wrap gap-3">
+          <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+            <DialogTrigger asChild>
+              <Button className="bg-primary" data-testid="open-save-application-btn"><BriefcaseBusiness className="w-4 h-4 mr-2" aria-hidden="true" /> Enregistrer cette candidature</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Enregistrer la candidature</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div><Label>Poste</Label><Input className="mt-1" value={form.poste} onChange={(e) => setForm({ ...form, poste: e.target.value })} data-testid="app-poste-input" /></div>
+                <div><Label>Entreprise</Label><Input className="mt-1" value={form.entreprise} onChange={(e) => setForm({ ...form, entreprise: e.target.value })} data-testid="app-entreprise-input" /></div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div><Label>Date</Label><Input type="date" className="mt-1" value={form.date_candidature} onChange={(e) => setForm({ ...form, date_candidature: e.target.value })} /></div>
+                  <div>
+                    <Label>Statut</Label>
+                    <Select value={form.statut} onValueChange={(v) => setForm({ ...form, statut: v })}>
+                      <SelectTrigger className="mt-1" data-testid="app-statut-select"><SelectValue /></SelectTrigger>
+                      <SelectContent>{STATUSES.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div><Label>Notes</Label><Textarea rows={2} className="mt-1" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Facultatif" /></div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setSaveOpen(false)}>Annuler</Button>
+                <Button className="bg-primary" onClick={saveApplication} disabled={saving} data-testid="save-application-btn">
+                  {saving && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Enregistrer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Button variant="outline" onClick={() => navigate("/applications")} data-testid="go-to-tracking-btn">Voir le suivi</Button>
+        </div>
       </div>
 
       <div className="flex justify-start">

@@ -47,6 +47,7 @@ async def startup():
     await db.cvs.create_index("user_id")
     await db.jobs.create_index("user_id")
     await db.sessions.create_index("user_id")
+    await db.applications.create_index("user_id")
     await auth.seed_admin()
     logger.info("Matchipy startup complete")
 

@@ -1,7 +1,7 @@
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { LogOut, LayoutGrid } from "lucide-react";
+import { LogOut, LayoutGrid, BriefcaseBusiness } from "lucide-react";
 
 export default function Navbar() {
   const { user, logout } = useAuth();
@@ -25,6 +25,14 @@ export default function Navbar() {
               data-testid="navbar-dashboard-btn"
             >
               <LayoutGrid className="w-4 h-4 mr-2" aria-hidden="true" /> Tableau de bord
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate("/applications")}
+              data-testid="navbar-applications-btn"
+            >
+              <BriefcaseBusiness className="w-4 h-4 mr-2" aria-hidden="true" /> Suivi
             </Button>
             <span className="text-sm text-muted-foreground hidden sm:inline">{user.email}</span>
             <Button

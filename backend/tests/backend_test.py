@@ -293,6 +293,93 @@ def test_ats_check(session, session_id):
     assert elapsed < 20, f"ATS check too slow ({elapsed:.1f}s) — suspect LLM call"
 
 
+# ---------- Affinda EU real integration ----------
+def test_ats_check_affinda_available(session, session_id):
+    """AFFINDA_API_KEY is valid on the EU region; expect affinda_available=true and detected fields."""
+    r = session.post(f"{BASE_URL}/api/ats/check",
+                     json={"generation_id": session_id, "template_id": "classic"},
+                     timeout=180)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body.get("affinda_available") is True, f"Expected Affinda available, got: {body}"
+    assert body.get("primary") == "affinda"
+    report = body["report"]
+    assert report["source"] == "affinda"
+    assert report["score"] >= 0
+    # Fields present with labels
+    labels = [f["label"] for f in report["fields"]]
+    assert "Nom" in labels and "Email" in labels
+    # Some fields should be detected on the CV
+    assert isinstance(report.get("detected"), list)
+    assert isinstance(report.get("missing"), list)
+
+
+# ---------- BLOC 3bis: Application tracking ----------
+@pytest.fixture(scope="module")
+def application_id(session, session_id):
+    r = session.post(f"{BASE_URL}/api/applications",
+                     json={"session_id": session_id,
+                           "poste": "TEST_Développeur Fullstack",
+                           "entreprise": "TEST_Acme",
+                           "statut": "envoyée",
+                           "notes": "TEST candidature",
+                           "template_id": "classic"}, timeout=60)
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc.get("id")
+    assert doc["poste"] == "TEST_Développeur Fullstack"
+    assert doc["statut"] == "envoyée"
+    return doc["id"]
+
+
+def test_application_list_and_filter(session, application_id):
+    r = session.get(f"{BASE_URL}/api/applications", timeout=15)
+    assert r.status_code == 200
+    apps = r.json()
+    assert any(a["id"] == application_id for a in apps)
+    # Filter by status
+    r2 = session.get(f"{BASE_URL}/api/applications?statut=envoyée", timeout=15)
+    assert r2.status_code == 200
+    assert any(a["id"] == application_id for a in r2.json())
+    # Filter negative
+    r3 = session.get(f"{BASE_URL}/api/applications?statut=refusée", timeout=15)
+    assert all(a["id"] != application_id for a in r3.json())
+
+
+def test_application_update(session, application_id):
+    r = session.put(f"{BASE_URL}/api/applications/{application_id}",
+                    json={"statut": "entretien", "notes": "TEST updated"}, timeout=20)
+    assert r.status_code == 200, r.text
+    doc = r.json()
+    assert doc["statut"] == "entretien"
+    assert doc["notes"] == "TEST updated"
+
+
+def test_application_download_cv_pdf(session, application_id):
+    r = session.post(f"{BASE_URL}/api/applications/{application_id}/download",
+                     json={"doc_type": "cv", "format": "pdf"}, timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.content[:4] == b"%PDF"
+    assert len(r.content) > 500
+
+
+def test_application_download_letter_pdf(session, application_id):
+    r = session.post(f"{BASE_URL}/api/applications/{application_id}/download",
+                     json={"doc_type": "cover_letter", "format": "pdf"}, timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.content[:4] == b"%PDF"
+    assert len(r.content) > 500
+
+
+def test_application_delete(session, application_id):
+    r = session.delete(f"{BASE_URL}/api/applications/{application_id}", timeout=15)
+    assert r.status_code == 200
+    r2 = session.get(f"{BASE_URL}/api/applications", timeout=15)
+    assert all(a["id"] != application_id for a in r2.json())
+
+
+
+
 # ---------- Export (ÉVOLUTION 1: 4 downloads: cv+letter × pdf+docx) ----------
 def test_export_cv_pdf(session, session_id):
     r = session.post(f"{BASE_URL}/api/export/download",

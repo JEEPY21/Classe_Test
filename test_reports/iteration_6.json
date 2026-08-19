@@ -1,0 +1,22 @@
+{
+  "summary": "Validated Bloc 4 (Affinda EU real integration) + Bloc 3bis (Suivi manuel des candidatures) end-to-end. Backend pytest 25/25 pass (5 new tests: Affinda availability with detected fields + full ApplicationCreate/list/filter/update/download(cv+letter PDF)/delete). Frontend Playwright 5-block flow passed with real API on preview URL: Bloc4 shows 'Analyse effectuée par l'API professionnelle Affinda.' banner (affinda_available=true), Bloc5 save-application dialog is prefilled from job analysis (poste='Développeur Fullstack Senior', entreprise='Acme Corp'), row appears in /applications with 'entretien' badge, status-filter excludes non-matching entries, quick-status changed to 'acceptée', edit dialog saves poste, dl-cv-<id> returned 3086B PDF, dl-letter-<id> returned 3080B PDF (snapshot rebuild works), delete + confirm removes the row and empty-state is shown.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Affinda EU wiring is correct: ats_service.affinda_parse uses AFFINDA_BASE_URL (api.eu1.affinda.com), passes wait=true, and deletes the uploaded doc post-parsing (RGPD) — verified live on preview and via pytest (affinda_available=true, source=affinda).",
+    "ats_service still has zero LLM imports (assertion in test_ats_service_has_no_llm_import) — Bloc 4 remains purely ATS parsing, no Claude latency.",
+    "Applications router does snapshot correctly (final_cv + cover_letter.paragraphs) and rebuilds PDF/DOCX from the snapshot on download — verified with a delete of the source CV path would still work (documents are rebuilt in-memory from snapshot).",
+    "Small UX nit (non-blocking): the download buttons in Applications.jsx disable via `disabled={downloading}` which uses a string; while it works for empty vs. non-empty, a boolean flag would be cleaner. Not a bug.",
+    "Minor: navbar-applications-btn correctly wired; open-save-application-btn / save-application-btn / go-to-tracking-btn / status-filter / quick-status-<id> / edit-<id> / save-edit-btn / delete-app-<id> / confirm-delete-app-<id> / dl-cv-<id> / dl-letter-<id> testids all present and functional."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (25/25)", "frontend": "100% (Bloc1->Bloc5 + Applications CRUD + downloads)"},
+  "test_credentials": "admin@matchipy.com / Matchipy2026! — /tmp/sample_cv.pdf exists.",
+  "seed_data_creation": "None persistent — every application created by Playwright/backend_test is deleted by the same test.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Affinda EU key is live and the response is fast (<5s). The application snapshot embeds cover_letter.paragraphs from the session; if a session had no letter, /applications/{id}/download with doc_type=cover_letter would 400 — behavior confirmed only for happy path. Testids to reuse: navbar-applications-btn, open-save-application-btn, save-application-btn, go-to-tracking-btn, status-filter, quick-status-<id>, edit-<id>, save-edit-btn, delete-app-<id>, confirm-delete-app-<id>, dl-cv-<id>, dl-letter-<id>. The CV file input has data-testid='upload-cv-input' and is display:hidden — use set_input_files with state='attached'.",
+  "rca of the issue": "N/A — both requested features (A) Affinda real EU integration and (B) manual application tracking are correctly implemented and verified. No regression on the async 2-LLM generation flow (Sonnet CV + Haiku letter)."
+}
