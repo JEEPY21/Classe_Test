@@ -18,19 +18,22 @@ export default function Step5Export({ session, templateId, setTemplateId, onBack
   const [preview, setPreview] = useState(null);
   const [reviewed, setReviewed] = useState(false);
   const [downloading, setDownloading] = useState("");
+  const hasCover = (preview?.cover_letter?.paragraphs || []).length > 0;
 
   useEffect(() => { api.templates().then((r) => setTemplates(r.data)).catch(() => {}); }, []);
   useEffect(() => {
     if (session) api.preview({ generation_id: session.id }).then((r) => setPreview(r.data)).catch((e) => toast.error(formatApiError(e.response?.data?.detail)));
   }, [session]);
 
-  const download = async (format) => {
-    setDownloading(format);
+  const download = async (docType, format) => {
+    const key = `${docType}-${format}`;
+    setDownloading(key);
     try {
-      const { data } = await api.download({ generation_id: session.id, template_id: templateId, format });
+      const { data } = await api.download({ generation_id: session.id, template_id: templateId, format, doc_type: docType });
       const name = (preview?.final?.identity?.full_name || "cv").replace(/\s+/g, "_");
-      saveBlob(data, `CV_${name}.${format}`);
-      toast.success(`Export ${format.toUpperCase()} téléchargé`);
+      const prefix = docType === "cover_letter" ? "Lettre" : "CV";
+      saveBlob(data, `${prefix}_${name}.${format}`);
+      toast.success(`${docType === "cover_letter" ? "Lettre" : "CV"} ${format.toUpperCase()} téléchargé`);
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
     } finally {
@@ -89,16 +92,38 @@ export default function Step5Export({ session, templateId, setTemplateId, onBack
       {/* Export */}
       <div className="border border-border rounded-2xl bg-white p-5">
         <h3 className="font-heading font-semibold text-lg mb-1">Export final</h3>
-        <p className="text-sm text-muted-foreground mb-4">PDF (texte natif) et DOCX, tous deux compatibles ATS.</p>
-        <div className="flex flex-wrap gap-3">
-          <Button className="bg-primary h-11 px-6" disabled={!reviewed || downloading} onClick={() => download("pdf")} data-testid="export-pdf-btn">
-            {downloading === "pdf" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileText className="w-4 h-4 mr-2" aria-hidden="true" />} Télécharger PDF
-          </Button>
-          <Button variant="outline" className="h-11 px-6" disabled={!reviewed || downloading} onClick={() => download("docx")} data-testid="export-docx-btn">
-            {downloading === "docx" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <FileType2 className="w-4 h-4 mr-2" aria-hidden="true" />} Télécharger DOCX
-          </Button>
+        <p className="text-sm text-muted-foreground mb-4">PDF (texte natif) et DOCX, tous deux compatibles ATS. Le CV et la lettre se téléchargent séparément.</p>
+
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div className="border border-border rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3"><FileText className="w-4 h-4 text-brand" aria-hidden="true" /><span className="font-semibold">CV</span></div>
+            <div className="flex flex-wrap gap-2">
+              <Button className="bg-primary" disabled={!reviewed || downloading} onClick={() => download("cv", "pdf")} data-testid="export-cv-pdf-btn">
+                {downloading === "cv-pdf" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" aria-hidden="true" />} CV PDF
+              </Button>
+              <Button variant="outline" disabled={!reviewed || downloading} onClick={() => download("cv", "docx")} data-testid="export-cv-docx-btn">
+                {downloading === "cv-docx" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" aria-hidden="true" />} CV DOCX
+              </Button>
+            </div>
+          </div>
+
+          <div className="border border-border rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3"><FileType2 className="w-4 h-4 text-brand" aria-hidden="true" /><span className="font-semibold">Lettre de motivation</span></div>
+            {hasCover ? (
+              <div className="flex flex-wrap gap-2">
+                <Button className="bg-primary" disabled={!reviewed || downloading} onClick={() => download("cover_letter", "pdf")} data-testid="export-letter-pdf-btn">
+                  {downloading === "cover_letter-pdf" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" aria-hidden="true" />} Lettre PDF
+                </Button>
+                <Button variant="outline" disabled={!reviewed || downloading} onClick={() => download("cover_letter", "docx")} data-testid="export-letter-docx-btn">
+                  {downloading === "cover_letter-docx" ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Download className="w-4 h-4 mr-2" aria-hidden="true" />} Lettre DOCX
+                </Button>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">Aucune lettre générée pour cette candidature.</p>
+            )}
+          </div>
         </div>
-        {!reviewed && <p className="text-xs text-amber-600 mt-3">Validez la relecture ci-dessus pour activer l'export.</p>}
+        {!reviewed && <p className="text-xs text-amber-600 mt-3">Validez la relecture ci-dessus pour activer les téléchargements.</p>}
       </div>
 
       <div className="flex justify-start">

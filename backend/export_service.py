@@ -42,7 +42,7 @@ def build_final_cv(cv: dict, session: dict) -> dict:
         "education": cv.get("education", []),
         "languages": cv.get("languages", []),
         "experiences": [],
-        "skills": list(cv.get("skills", [])),
+        "skills": [],
     }
     for exp in cv.get("experiences", []):
         eid = exp.get("id")
@@ -57,9 +57,21 @@ def build_final_cv(cv: dict, session: dict) -> dict:
         bullets = [b for b in bullets if b and b.strip()]
         final["experiences"].append({**exp, "bullets": bullets})
 
-    for s in session.get("confirmed_skills", []):
-        if s not in final["skills"]:
-            final["skills"].append(s)
+    # Skills: use the curated skills_section from generation (skills woven into bullets are
+    # deliberately excluded). Fallback to base CV skills + confirmed if not yet generated.
+    section = session.get("skills_section") or []
+    if section:
+        seen = set()
+        for item in section:
+            skill = item.get("skill") if isinstance(item, dict) else str(item)
+            if skill and skill.lower() not in seen:
+                seen.add(skill.lower())
+                final["skills"].append(skill)
+    else:
+        final["skills"] = list(cv.get("skills", []))
+        for s in session.get("confirmed_skills", []):
+            if s not in final["skills"]:
+                final["skills"].append(s)
     return final
 
 
@@ -231,6 +243,59 @@ def build_docx(cv: dict, language: str = "fr") -> bytes:
                  for l in cv["languages"]]
         doc.add_paragraph(" · ".join(langs))
 
+    buf = io.BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
+
+# ---------------- Cover letter export ----------------
+def render_cover_letter_html(identity: dict, paragraphs: list, language: str = "fr") -> str:
+    ident = identity or {}
+    contact = " · ".join([x for x in [ident.get("email"), ident.get("phone"),
+                                      ident.get("location")] if x])
+    body_paras = "".join(f"<p style='margin:0 0 10px 0;text-align:left;'>{_e(p)}</p>"
+                         for p in (paragraphs or []) if p and str(p).strip())
+    return f"""<html><head><meta charset="utf-8"><style>
+      @page {{ size: A4; margin: 1.4cm 1.8cm; }}
+      html, body {{ margin:0; padding:0; }}
+      body {{ font-family: Helvetica; font-size:11.5px; color:#1a1a1a; line-height:1.55; text-align:left; }}
+      .wrap {{ width:100%; }}
+      h1 {{ font-size:19px; color:#0F172A; margin:0 0 2px 0; }}
+      .title {{ font-size:12px; color:#444; margin:0 0 2px 0; }}
+      .contact {{ font-size:10px; color:#555; margin:0 0 18px 0; }}
+      p {{ text-align:left; }}
+    </style></head><body>
+      <div class="wrap">
+        <h1>{_e(ident.get('full_name'))}</h1>
+        {f'<div class="title">{_e(ident.get("title"))}</div>' if ident.get('title') else ''}
+        <div class="contact">{contact}</div>
+        {body_paras}
+      </div>
+    </body></html>"""
+
+
+def build_cover_letter_docx(identity: dict, paragraphs: list, language: str = "fr") -> bytes:
+    ident = identity or {}
+    doc = Document()
+    style = doc.styles["Normal"]
+    style.font.name = "Calibri"
+    style.font.size = Pt(11)
+    h = doc.add_paragraph()
+    run = h.add_run(ident.get("full_name", ""))
+    run.bold = True
+    run.font.size = Pt(16)
+    if ident.get("title"):
+        doc.add_paragraph(ident["title"])
+    contact = " · ".join([x for x in [ident.get("email"), ident.get("phone"),
+                                      ident.get("location")] if x])
+    if contact:
+        doc.add_paragraph(contact)
+    doc.add_paragraph("")
+    for p in (paragraphs or []):
+        if p and str(p).strip():
+            para = doc.add_paragraph(p)
+            para.alignment = WD_ALIGN_PARAGRAPH.LEFT
     buf = io.BytesIO()
     doc.save(buf)
     return buf.getvalue()

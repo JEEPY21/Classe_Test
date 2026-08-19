@@ -36,9 +36,11 @@ multi-utilisateurs-ready pour commercialisation ultérieure.
   obligatoire, export PDF (texte natif, xhtml2pdf) + DOCX (python-docx).
 
 ## État des intégrations
-- Claude Sonnet 4.6 : OK (clé universelle).
-- Affinda : clé fournie INVALIDE (HTTP 401) -> repli lisibilité interne actif. À remplacer
-  par une clé valide pour activer le parsing professionnel.
+- Génération CV : **Claude Sonnet 4.6** (`claude-sonnet-4-6`) — score, reformulations, skills_section.
+- Génération lettre : **Claude Haiku 4.5** (`claude-haiku-4-5-20251001`) — style humain (sans tiret long, sans puces, sans clichés). Appels CV/lettre lancés en parallèle (asyncio.gather).
+- Extraction CV : nettoyage du texte avant LLM (espaces multiples, sauts de ligne, en-têtes/pieds de page répétés).
+- Contrôle ATS (Bloc 4) : **aucun appel LLM** — Affinda (clé actuelle 401) + repli lisibilité interne déterministe.
+- Génération asynchrone + polling (plus de 502), refresh token auto (TTL 8h).
 
 ## Backlog priorisé
 - P1: BLOC 3bis — suivi manuel des candidatures (dashboard statuts, CV/lettre attachés).

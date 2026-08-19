@@ -126,14 +126,20 @@ async def get_job(job_id: str, user: dict = Depends(get_current_user)):
 gen_router = APIRouter(prefix="/generate", tags=["generate"])
 
 
-async def _run_generation(sid: str, cv_structured: dict, job_analysis: dict, target: str):
+async def _run_generation(sid: str, cv_structured: dict, job_analysis: dict, target: str,
+                          confirmed_skills: list = None):
+    confirmed_skills = confirmed_skills or []
     try:
-        result = await asyncio.wait_for(
-            llm_service.generate_match(cv_structured, job_analysis, target, []), timeout=180)
+        # Two distinct LLM calls, run concurrently: Sonnet for the CV, Haiku for the letter.
+        cv_result, letter = await asyncio.wait_for(asyncio.gather(
+            llm_service.generate_cv(cv_structured, job_analysis, target, confirmed_skills),
+            llm_service.generate_cover_letter(cv_structured, job_analysis, target, confirmed_skills),
+        ), timeout=180)
         await db.sessions.update_one({"id": sid}, {"$set": {
-            "score": result.get("score", {}),
-            "experience_rewrites": result.get("experience_rewrites", []),
-            "cover_letter": result.get("cover_letter", {"paragraphs": []}),
+            "score": cv_result.get("score", {}),
+            "experience_rewrites": cv_result.get("experience_rewrites", []),
+            "skills_section": cv_result.get("skills_section", []),
+            "cover_letter": {"paragraphs": letter.get("paragraphs", [])},
             "status": "ready",
             "error": None,
             "updated_at": now_iso(),
@@ -155,7 +161,7 @@ async def generate(body: GenerateInput, user: dict = Depends(get_current_user)):
     target = body.target_language or job["analysis"].get("language", "fr")
     doc = {"id": new_id(), "user_id": user["id"], "cv_id": body.cv_id, "job_id": body.job_id,
            "target_language": target,
-           "score": {}, "experience_rewrites": [], "cover_letter": {"paragraphs": []},
+           "score": {}, "experience_rewrites": [], "skills_section": [], "cover_letter": {"paragraphs": []},
            "confirmed_skills": [],
            "decisions": {"rewrites": [], "cover_letter_accepted": True},
            "status": "pending", "error": None,
@@ -174,13 +180,20 @@ async def get_session(sid: str, user: dict = Depends(get_current_user)):
 
 @gen_router.put("/{sid}/confirm-skills")
 async def confirm_skills(sid: str, body: ConfirmSkillsInput, user: dict = Depends(get_current_user)):
-    """Only skills explicitly confirmed by the user are stored, tagged as user confirmation (traceability)."""
-    await _get_session(sid, user)
-    confirmed = [{"skill": s, "source": "confirmation_utilisateur"} for s in body.confirmed_skills]
+    """Only skills explicitly confirmed by the user are stored (tagged as user confirmation for
+    traceability), then the CV is REGENERATED so each confirmed skill is either woven into the
+    matching experience bullet or placed once in the curated skills section."""
+    session = await _get_session(sid, user)
+    cv = await _get_cv(session["cv_id"], user)
+    job = await _get_job(session["job_id"], user)
+    confirmed_meta = [{"skill": s, "source": "confirmation_utilisateur"} for s in body.confirmed_skills]
     await db.sessions.update_one({"id": sid, "user_id": user["id"]},
-                                 {"$set": {"confirmed_skills_meta": confirmed,
+                                 {"$set": {"confirmed_skills_meta": confirmed_meta,
                                            "confirmed_skills": body.confirmed_skills,
+                                           "status": "pending", "error": None,
                                            "updated_at": now_iso()}})
+    asyncio.create_task(_run_generation(sid, cv["structured"], job["analysis"],
+                                        session.get("target_language", "fr"), body.confirmed_skills))
     return _strip(await _get_session(sid, user))
 
 
@@ -240,21 +253,32 @@ async def download(payload: dict, user: dict = Depends(get_current_user)):
     sid = payload.get("generation_id")
     template_id = payload.get("template_id", "classic")
     fmt = payload.get("format", "pdf")
+    doc_type = payload.get("doc_type", "cv")
     session = await _get_session(sid, user)
     cv = await _get_cv(session["cv_id"], user)
     final_cv = export_service.build_final_cv(cv["structured"], session)
     lang = session.get("target_language", "fr")
     name = (final_cv.get("identity", {}).get("full_name") or "cv").replace(" ", "_")
+    docx_media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
-    if fmt == "docx":
-        content = export_service.build_docx(final_cv, lang)
-        media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        filename = f"CV_{name}.docx"
+    if doc_type == "cover_letter":
+        paragraphs = (session.get("cover_letter") or {}).get("paragraphs", [])
+        if not paragraphs:
+            raise HTTPException(status_code=400, detail="Aucune lettre de motivation à exporter.")
+        identity = final_cv.get("identity", {})
+        if fmt == "docx":
+            content = export_service.build_cover_letter_docx(identity, paragraphs, lang)
+            media, filename = docx_media, f"Lettre_{name}.docx"
+        else:
+            html = export_service.render_cover_letter_html(identity, paragraphs, lang)
+            content, media, filename = export_service.html_to_pdf(html), "application/pdf", f"Lettre_{name}.pdf"
     else:
-        html = export_service.render_html(final_cv, template_id, lang)
-        content = export_service.html_to_pdf(html)
-        media = "application/pdf"
-        filename = f"CV_{name}.pdf"
+        if fmt == "docx":
+            content = export_service.build_docx(final_cv, lang)
+            media, filename = docx_media, f"CV_{name}.docx"
+        else:
+            html = export_service.render_html(final_cv, template_id, lang)
+            content, media, filename = export_service.html_to_pdf(html), "application/pdf", f"CV_{name}.pdf"
 
     return StreamingResponse(io.BytesIO(content), media_type=media,
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})

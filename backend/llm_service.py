@@ -8,15 +8,16 @@ from emergentintegrations.llm.chat import LlmChat, UserMessage
 
 MODEL_PROVIDER = "anthropic"
 MODEL_NAME = "claude-sonnet-4-6"
+MODEL_HAIKU = "claude-haiku-4-5-20251001"
 
 
 def _key() -> str:
     return os.environ["EMERGENT_LLM_KEY"]
 
 
-async def _ask(system: str, prompt: str, session_id: str) -> str:
+async def _ask(system: str, prompt: str, session_id: str, model: str = MODEL_NAME) -> str:
     chat = LlmChat(api_key=_key(), session_id=session_id, system_message=system).with_model(
-        MODEL_PROVIDER, MODEL_NAME)
+        MODEL_PROVIDER, model)
     return await chat.send_message(UserMessage(text=prompt))
 
 
@@ -81,25 +82,34 @@ async def analyze_job(raw_text: str) -> dict:
 
 
 # ---------------- BLOC 3: controlled generation ----------------
-async def generate_match(cv: dict, job: dict, target_language: str, confirmed_skills: list) -> dict:
-    """Cross the structured CV with job keywords. Produce:
+async def generate_cv(cv: dict, job: dict, target_language: str, confirmed_skills: list) -> dict:
+    """CV generation (Claude Sonnet). Produce ONLY the CV content (content-only JSON, no layout):
     - a transparent match score broken down by sub-criteria
     - line-by-line experience rewrite proposals (each keyword tagged with its source)
-    - a cover letter grounded ONLY in the CV + offer
-    Everything is content only (JSON). No layout."""
+    - a curated skills_section (transverse skills only)
+    The cover letter is generated separately by Claude Haiku."""
     lang_names = {"fr": "français", "en": "anglais", "es": "espagnol", "de": "allemand"}
     tl = lang_names.get(target_language, "français")
     system = (
         "Tu es un rédacteur de CV expert et rigoureux. RÈGLES NON NÉGOCIABLES:\n"
         "1. ZÉRO HALLUCINATION: n'invente jamais une expérience, une compétence, une date, "
-        "un chiffre ou une réalisation absente du CV structuré fourni.\n"
-        "2. TRAÇABILITÉ: chaque mot-clé que tu intègres à une reformulation doit provenir soit "
-        "de l'offre, soit du CV, soit de la liste des compétences confirmées par l'utilisateur. "
-        "Indique la source de chaque mot-clé utilisé ('offre', 'cv', 'confirmation_utilisateur').\n"
+        "un chiffre ou une réalisation absente du CV structuré fourni ou de la liste des "
+        "compétences confirmées par l'utilisateur.\n"
+        "2. TRAÇABILITÉ: chaque mot-clé/compétence que tu intègres doit provenir soit de l'offre, "
+        "soit du CV, soit des compétences confirmées. Indique la source ('offre', 'cv', "
+        "'confirmation_utilisateur').\n"
         "3. Reformule chaque puce d'expérience individuellement (verbes d'action, résultats chiffrés "
         "UNIQUEMENT si le chiffre existe déjà dans le CV source). Ne fusionne pas les puces.\n"
         "4. Le score doit être expliqué par sous-critère, jamais opaque.\n"
-        f"5. Rédige tout le contenu généré en {tl}.\n"
+        "5. PLACEMENT DES COMPÉTENCES (règle stricte): pour CHAQUE compétence réelle du candidat "
+        "(présente dans le CV ou confirmée manuellement), détermine si elle est rattachable à une "
+        "expérience précise. SI OUI -> intègre-la NATURELLEMENT dans la puce de mission de cette "
+        "expérience (reformulation), et NE la mets PAS dans skills_section. SI NON (logiciel "
+        "transverse, langue, soft skill général, outil non lié à une mission précise) -> place-la "
+        "dans skills_section. Une compétence n'apparaît qu'UNE SEULE FOIS au total : jamais à la fois "
+        "dans une puce ET dans skills_section. skills_section est limitée à 12 éléments MAXIMUM, "
+        "priorisés par pertinence vis-à-vis de l'offre.\n"
+        f"6. Rédige tout le contenu généré en {tl}.\n"
         "Tu réponds UNIQUEMENT avec un objet JSON valide, sans texte autour."
     )
     schema = (
@@ -109,7 +119,7 @@ async def generate_match(cv: dict, job: dict, target_language: str, confirmed_sk
         '"matched_soft_skills":[],"missing_soft_skills":[],"missing_keywords":[]},'
         '"experience_rewrites":[{"experience_id":"","role":"","company":"",'
         '"bullets":[{"original":"","proposed":"","keywords_used":[{"keyword":"","source":"offre"}]}]}],'
-        '"cover_letter":{"paragraphs":[]}'
+        '"skills_section":[{"skill":"","source":"cv"}]'
         '}'
     )
     prompt = (
@@ -122,13 +132,53 @@ async def generate_match(cv: dict, job: dict, target_language: str, confirmed_sk
         "overall pondéré, une explication claire, et les listes de compétences correspondantes/manquantes.\n"
         "- experience_rewrites: pour CHAQUE expérience du CV (garde le même experience_id), une "
         "reformulation puce par puce. 'original' = puce d'origine, 'proposed' = reformulation améliorée "
-        "intégrant naturellement les mots-clés pertinents ET fondés sur le vécu réel. Pour chaque puce, "
-        "liste keywords_used avec leur source.\n"
-        "- cover_letter: 3 à 4 paragraphes fondés uniquement sur le CV + l'offre, sans rien inventer.\n"
+        "intégrant naturellement les compétences rattachables à cette expérience ET les mots-clés "
+        "pertinents fondés sur le vécu réel. Pour chaque puce, liste keywords_used avec leur source.\n"
+        "- skills_section: UNIQUEMENT les compétences réelles NON rattachables à une expérience précise "
+        "(transverses/langues/soft skills généraux), dédupliquées, max 12, priorisées selon l'offre, "
+        "chacune avec sa source. Ne JAMAIS y répéter une compétence déjà intégrée dans une puce.\n"
         f"SCHEMA: {schema}\n\nRenvoie uniquement le JSON."
     )
-    data = _parse_json(await _ask(system, prompt, "generate-match"))
+    data = _parse_json(await _ask(system, prompt, "generate-cv", model=MODEL_NAME))
     return _normalize_generation(data)
+
+
+async def generate_cover_letter(cv: dict, job: dict, target_language: str, confirmed_skills: list) -> dict:
+    """Cover letter generation (Claude Haiku). Grounded ONLY in the CV + offer. Human, natural style."""
+    lang_names = {"fr": "français", "en": "anglais", "es": "espagnol", "de": "allemand"}
+    tl = lang_names.get(target_language, "français")
+    system = (
+        "Tu es un candidat qui rédige sa propre lettre de motivation. RÈGLES NON NÉGOCIABLES:\n"
+        "1. ZÉRO HALLUCINATION: fonde-toi uniquement sur le CV structuré + l'offre + les compétences "
+        "confirmées. N'invente aucune expérience, compétence, date ou réalisation.\n"
+        "2. STYLE: écris dans un style naturel et humain, comme une vraie personne. "
+        "INTERDIT: les tirets longs (—), les listes à puces, les formules creuses et clichés "
+        "(« je suis dynamique et motivé », « votre entreprise leader », etc.). "
+        "Varie la longueur des phrases, sois direct, reflète la voix authentique du candidat.\n"
+        f"3. Rédige la lettre en {tl}.\n"
+        "Tu réponds UNIQUEMENT avec un objet JSON valide de la forme "
+        '{"paragraphs":["...","..."]}, sans texte autour.'
+    )
+    prompt = (
+        f"CV structuré du candidat (source de vérité):\n{json.dumps(cv, ensure_ascii=False)}\n\n"
+        f"Analyse de l'offre ciblée:\n{json.dumps(job, ensure_ascii=False)}\n\n"
+        f"Compétences confirmées par l'utilisateur:\n{json.dumps(confirmed_skills, ensure_ascii=False)}\n\n"
+        "Rédige une lettre de motivation de 3 à 4 paragraphes, fondée uniquement sur ces éléments. "
+        "Respecte strictement les règles de style (aucun tiret long, aucune puce, aucune formule creuse, "
+        "phrases de longueurs variées, ton direct et humain). "
+        'Renvoie uniquement le JSON: {"paragraphs":["paragraphe 1","paragraphe 2", ...]}.'
+    )
+    data = _parse_json(await _ask(system, prompt, "generate-letter", model=MODEL_HAIKU))
+    paras = data.get("paragraphs") or []
+    # safety net: strip any stray em dashes / bullet markers the model may have left
+    clean = []
+    for p in paras:
+        if not isinstance(p, str):
+            continue
+        p = p.replace("—", ", ").replace("•", "").replace("- ", "").strip()
+        if p:
+            clean.append(p)
+    return {"paragraphs": clean}
 
 
 def _to_str_list(value) -> list:
@@ -154,6 +204,7 @@ def _normalize_generation(data: dict) -> dict:
               "missing_soft_skills", "missing_keywords"):
         score[k] = _to_str_list(score.get(k))
     data["score"] = score
+    woven = set()
     for r in data.get("experience_rewrites") or []:
         for b in r.get("bullets") or []:
             ku = []
@@ -167,5 +218,27 @@ def _normalize_generation(data: dict) -> dict:
                     kw, src = str(k).strip(), "cv"
                 if kw:
                     ku.append({"keyword": kw, "source": src})
+                    woven.add(kw.lower())
             b["keywords_used"] = ku
+
+    # skills_section: normalize to [{skill, source}], dedupe, drop skills already woven into
+    # a bullet (a skill must appear only once), cap at 12.
+    section = []
+    seen = set()
+    for item in data.get("skills_section") or []:
+        if isinstance(item, dict):
+            skill = str(item.get("skill") or item.get("keyword") or item.get("name") or "").strip()
+            source = str(item.get("source") or "cv").strip()
+        elif isinstance(item, str):
+            skill, source = item.strip(), "cv"
+        else:
+            skill, source = str(item).strip(), "cv"
+        low = skill.lower()
+        if not skill or low in seen or low in woven:
+            continue
+        seen.add(low)
+        section.append({"skill": skill, "source": source})
+        if len(section) >= 12:
+            break
+    data["skills_section"] = section
     return data

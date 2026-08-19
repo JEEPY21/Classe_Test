@@ -1,0 +1,20 @@
+{
+  "summary": "Verified both new features end-to-end. Backend pytest 15/15 passing (extended with skills_section shape+dedup test, confirm-skills async regeneration test, and 4 discrete download tests: cv/pdf, cv/docx, cover_letter/pdf, cover_letter/docx). Frontend Playwright full flow passed: login -> new optimisation -> upload CV -> analyze job -> initial generation reveals skills-section-card with transverse skills only (HTML, CSS, Git, langues) while React/Node.js/JavaScript are woven into bullets -> checked Docker + TypeScript in missing skills -> confirm-skills-btn triggered async regeneration (status=pending) -> re-polling produced updated skills-section-card [Git, langues] (Docker/TS integrated into bullets, HTML/CSS also promoted into bullets, no duplication) -> Step4 ATS (fallback OK, Affinda 401 as expected) -> Step5 with 4 distinct enabled buttons after review-confirm, all 4 downloads succeeded returning CV_Camille_Dupont.pdf/.docx and Lettre_Camille_Dupont.pdf/.docx.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "llm_service._normalize_generation correctly enforces the dedup rule (skills_section skipped if lowercased skill already appears in woven set), and caps at 12 — behaviour verified in browser (section shrinks after regen).",
+    "confirm-skills sets status=pending and spawns asyncio.create_task(_run_generation) — good, no HTTP timeout risk, but still no watchdog: if the LLM hangs the session stays pending forever. Consider adding a max-duration guard as previously suggested.",
+    "Step5 export ships 4 dedicated buttons and calls api.download(docType, format) — cover_letter path in routers.download raises 400 when there is no cover_letter.paragraphs. Might be worth guarding the letter buttons on frontend when generated_cover.paragraphs is empty (current flow generates one, so this is a rare-case UX polish)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (15/15)", "frontend": "100% (full e2e with 4/4 downloads)"},
+  "test_credentials": "admin@matchipy.com / Matchipy2026! (works). Sample CV at /tmp/sample_cv.pdf (Camille Dupont).",
+  "seed_data_creation": "None persistent; backend_test.py cleans its uploaded CV via DELETE /api/cv/{id}.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Both évolutions are implemented and verified. Backend: /api/generate/{id}/confirm-skills is async and requires re-polling; /api/export/download accepts doc_type in ('cv','cover_letter') and format in ('pdf','docx'). Frontend testids to know: skills-section-card, confirm-skills-btn, missing-skill-<Name>, analyze-job-btn (NOT job-analyze-btn), upload-cv-input (hidden - use set_input_files directly), export-cv-pdf-btn / export-cv-docx-btn / export-letter-pdf-btn / export-letter-docx-btn (all disabled until review-confirm is checked). Async gen typically 20-40s per pass; a confirm cycle is ~60-90s total.",
+  "rca of the issue": "N/A — no bugs found in this iteration; the two changes work end-to-end. Observed correct behaviour: initial gen skills_section=[HTML, CSS, Git, French, English] with React/Node.js/JavaScript woven; after confirming Docker+TypeScript, section=[Git, French, English] and Docker+TS get integrated into bullets (dedup rule from _normalize_generation applied)."
+}

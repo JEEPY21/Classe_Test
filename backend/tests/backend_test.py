@@ -150,43 +150,184 @@ def session_id(session, cv_id, job_id):
     return sid
 
 
-def test_confirm_skills(session, session_id):
-    r = session.put(f"{BASE_URL}/api/generate/{session_id}/confirm-skills",
-                    json={"confirmed_skills": ["TypeScript"]}, timeout=20)
+def _poll_ready(session, sid, timeout=120):
+    deadline = time.time() + timeout
+    final = None
+    while time.time() < deadline:
+        time.sleep(2.5)
+        r = session.get(f"{BASE_URL}/api/generate/{sid}", timeout=15)
+        assert r.status_code == 200
+        final = r.json()
+        if final["status"] in ("ready", "error"):
+            return final
+    return final
+
+
+# ---- ÉVOLUTION 2: skills_section present, transverse only, deduped, <=12 ----
+def test_skills_section_shape(session, session_id):
+    r = session.get(f"{BASE_URL}/api/generate/{session_id}", timeout=15)
     assert r.status_code == 200
     doc = r.json()
-    assert "TypeScript" in doc["confirmed_skills"]
+    skills = doc.get("skills_section")
+    assert isinstance(skills, list), f"skills_section missing/not list: {skills}"
+    assert len(skills) <= 12, f"skills_section > 12: {len(skills)}"
+    # Collect keywords woven into experience rewrites (nested under bullets)
+    def collect_woven(d):
+        w = set()
+        for rw in d.get("experience_rewrites", []) or []:
+            for b in rw.get("bullets", []) or []:
+                for kw in b.get("keywords_used", []) or []:
+                    name = kw.get("keyword") if isinstance(kw, dict) else kw
+                    if isinstance(name, str) and name.strip():
+                        w.add(name.lower().strip())
+        return w
+    woven = collect_woven(doc)
+    # No overlap between section and woven keywords
+    section_names = []
+    for s in skills:
+        name = s.get("skill") if isinstance(s, dict) else s
+        assert isinstance(name, str) and name.strip()
+        section_names.append(name.lower().strip())
+    overlap = set(section_names) & woven
+    assert not overlap, f"Duplicated skills between section and bullets: {overlap}"
 
 
-# ---------- ATS check ----------
+# ---- ÉVOLUTION 2: confirm-skills triggers async regeneration ----
+def test_confirm_skills_triggers_regeneration(session, session_id):
+    r = session.put(f"{BASE_URL}/api/generate/{session_id}/confirm-skills",
+                    json={"confirmed_skills": ["Docker", "TypeScript"]}, timeout=20)
+    assert r.status_code == 200
+    doc = r.json()
+    assert set(["Docker", "TypeScript"]).issubset(set(doc["confirmed_skills"]))
+    assert doc["status"] == "pending", f"confirm-skills should set status=pending, got {doc['status']}"
+    final = _poll_ready(session, session_id, timeout=150)
+    assert final and final["status"] == "ready", f"Regeneration did not finish: {final}"
+    # Confirmed skill should appear either woven or in skills_section, not both
+    woven = set()
+    for rw in final.get("experience_rewrites", []) or []:
+        for b in rw.get("bullets", []) or []:
+            for kw in b.get("keywords_used", []) or []:
+                name = kw.get("keyword") if isinstance(kw, dict) else kw
+                if isinstance(name, str) and name.strip():
+                    woven.add(name.lower().strip())
+    section = set()
+    for s in final.get("skills_section", []):
+        name = s.get("skill") if isinstance(s, dict) else s
+        if isinstance(name, str):
+            section.add(name.lower().strip())
+    for confirmed in ["docker", "typescript"]:
+        assert confirmed in woven or confirmed in section, \
+            f"Confirmed skill '{confirmed}' not present in woven or section"
+        assert not (confirmed in woven and confirmed in section), \
+            f"Confirmed skill '{confirmed}' duplicated in both woven and section"
+
+
+# ---------- MOD 2: two LLM calls (Sonnet CV + Haiku letter) ----------
+def test_generation_has_cv_and_letter(session, session_id):
+    r = session.get(f"{BASE_URL}/api/generate/{session_id}", timeout=15)
+    assert r.status_code == 200
+    doc = r.json()
+    # Sonnet CV outputs
+    assert isinstance(doc.get("score"), dict) and "overall" in doc["score"]
+    assert isinstance(doc.get("experience_rewrites"), list)
+    assert isinstance(doc.get("skills_section"), list)
+    # Haiku letter output
+    paras = (doc.get("cover_letter") or {}).get("paragraphs", [])
+    assert isinstance(paras, list) and len(paras) >= 2, f"cover_letter.paragraphs missing: {paras}"
+
+
+# ---------- MOD 4: cover letter style (no em dash, no bullets) ----------
+def test_cover_letter_style_no_em_dash_no_bullets(session, session_id):
+    r = session.get(f"{BASE_URL}/api/generate/{session_id}", timeout=15)
+    doc = r.json()
+    paras = (doc.get("cover_letter") or {}).get("paragraphs", [])
+    assert paras, "no cover letter paragraphs"
+    joined = "\n".join(paras)
+    assert "\u2014" not in joined, "cover letter contains em dash (—)"
+    assert "•" not in joined, "cover letter contains bullet (•)"
+    for p in paras:
+        assert not p.lstrip().startswith("- "), f"bullet '- ' at start of paragraph: {p[:80]}"
+
+
+# ---------- MOD 2: extraction cleanup (unit) ----------
+def test_extraction_strips_repeated_headers_and_normalizes_whitespace():
+    import sys
+    sys.path.insert(0, "/app/backend")
+    from extraction import _strip_repeated_headers_footers, _normalize_whitespace
+    page1 = "CV confidentiel\nCamille Dupont\nDéveloppeur\nExpérience A\nPage 1 / 2"
+    page2 = "CV confidentiel\nSuite du parcours\nExpérience B\nPage 2 / 2"
+    stripped = _strip_repeated_headers_footers([page1, page2])
+    assert "CV confidentiel" not in stripped
+    assert "Page 1 / 2" not in stripped and "Page 2 / 2" not in stripped
+    assert "Camille Dupont" in stripped
+    assert "Expérience A" in stripped and "Expérience B" in stripped
+    # whitespace normalization
+    raw = "Hello    world\n\n\n\nnext\t\tline   here"
+    norm = _normalize_whitespace(raw)
+    assert "    " not in norm and "\t\t" not in norm
+    assert "\n\n\n" not in norm
+
+
+# ---------- MOD 1: ATS check — NO LLM call ----------
+def test_ats_service_has_no_llm_import():
+    with open("/app/backend/ats_service.py", "r", encoding="utf-8") as f:
+        src = f.read()
+    for forbidden in ("import llm_service", "from llm_service", "emergentintegrations",
+                      "anthropic", "LlmChat"):
+        assert forbidden not in src, f"ats_service.py must not reference LLM: found '{forbidden}'"
+
+
 def test_ats_check(session, session_id):
+    t0 = time.time()
     r = session.post(f"{BASE_URL}/api/ats/check",
                      json={"generation_id": session_id, "template_id": "classic"},
                      timeout=90)
+    elapsed = time.time() - t0
     assert r.status_code == 200, r.text
     body = r.json()
     # Affinda key invalid — fallback expected
     assert body["report"]["score"] >= 0
     assert "affinda_available" in body
+    assert "primary" in body and "report" in body
+    # MOD 1: no LLM call means the endpoint must be fast (no ~10-30s Claude latency)
+    assert elapsed < 20, f"ATS check too slow ({elapsed:.1f}s) — suspect LLM call"
 
 
-# ---------- Export ----------
-def test_export_pdf(session, session_id):
+# ---------- Export (ÉVOLUTION 1: 4 downloads: cv+letter × pdf+docx) ----------
+def test_export_cv_pdf(session, session_id):
     r = session.post(f"{BASE_URL}/api/export/download",
                      json={"generation_id": session_id, "template_id": "classic",
-                           "format": "pdf"}, timeout=60)
-    assert r.status_code == 200
+                           "doc_type": "cv", "format": "pdf"}, timeout=60)
+    assert r.status_code == 200, r.text
     assert r.headers["content-type"].startswith("application/pdf")
-    assert len(r.content) > 500
     assert r.content[:4] == b"%PDF"
+    assert len(r.content) > 500
 
 
-def test_export_docx(session, session_id):
+def test_export_cv_docx(session, session_id):
     r = session.post(f"{BASE_URL}/api/export/download",
-                     json={"generation_id": session_id, "format": "docx"},
-                     timeout=60)
-    assert r.status_code == 200
-    # DOCX = zip => starts with PK
+                     json={"generation_id": session_id, "doc_type": "cv",
+                           "format": "docx"}, timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.content[:2] == b"PK"
+    assert len(r.content) > 500
+
+
+def test_export_letter_pdf(session, session_id):
+    r = session.post(f"{BASE_URL}/api/export/download",
+                     json={"generation_id": session_id, "template_id": "classic",
+                           "doc_type": "cover_letter", "format": "pdf"}, timeout=60)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("application/pdf")
+    assert r.content[:4] == b"%PDF"
+    assert len(r.content) > 500
+
+
+def test_export_letter_docx(session, session_id):
+    r = session.post(f"{BASE_URL}/api/export/download",
+                     json={"generation_id": session_id, "doc_type": "cover_letter",
+                           "format": "docx"}, timeout=60)
+    assert r.status_code == 200, r.text
     assert r.content[:2] == b"PK"
     assert len(r.content) > 500
 

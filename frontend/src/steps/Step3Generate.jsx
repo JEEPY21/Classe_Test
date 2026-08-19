@@ -132,8 +132,13 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
     setSavingSkills(true);
     try {
       const { data } = await api.confirmSkills(session.id, [...confirmed]);
-      setSession((s) => ({ ...s, ...data }));
-      toast.success("Compétences confirmées enregistrées");
+      // confirm-skills relaunches an async generation so confirmed skills get woven into the
+      // matching experience bullets (or placed once in the skills section).
+      setSession(data);
+      setLoading(true);
+      setGenError("");
+      startPolling(data.id);
+      toast.success("Compétences appliquées — régénération en cours…");
     } catch (err) {
       toast.error(formatApiError(err.response?.data?.detail));
     } finally {
@@ -144,7 +149,6 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
   const next = async () => {
     setSaving(true);
     try {
-      await api.confirmSkills(session.id, [...confirmed]);
       const rewrites = (session.experience_rewrites || []).map((r) => ({
         experience_id: r.experience_id,
         accepted_bullets: [...(accepted[r.experience_id] || [])],
@@ -228,7 +232,7 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
           </div>
           <p className="text-sm text-muted-foreground mb-4">
             L'offre demande des compétences absentes de votre CV. Matchipy ne les ajoutera <b>jamais</b> automatiquement.
-            Cochez uniquement celles que vous possédez <b>réellement</b> — elles seront marquées « ajoutée par confirmation utilisateur ».
+            Cochez uniquement celles que vous possédez <b>réellement</b>. Après validation, le CV est <b>régénéré</b> : chaque compétence confirmée est soit intégrée directement dans la mission concernée, soit ajoutée une seule fois à la section compétences.
           </p>
           <div className="grid sm:grid-cols-2 gap-2">
             {missing.map((sk) => (
@@ -240,8 +244,24 @@ export default function Step3Generate({ cv, job, session, setSession, onNext, on
             ))}
           </div>
           <Button variant="outline" className="mt-4" onClick={saveSkills} disabled={savingSkills} data-testid="confirm-skills-btn">
-            {savingSkills && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Enregistrer les compétences confirmées ({confirmed.size})
+            {savingSkills && <Loader2 className="w-4 h-4 mr-2 animate-spin" />} Appliquer ces compétences et régénérer ({confirmed.size})
           </Button>
+        </div>
+      )}
+
+      {/* Curated skills section (transverse skills not tied to a specific experience) */}
+      {(session.skills_section || []).length > 0 && (
+        <div className="border border-border rounded-2xl bg-white p-5" data-testid="skills-section-card">
+          <h3 className="font-heading font-semibold text-lg mb-1">Section compétences du CV</h3>
+          <p className="text-sm text-muted-foreground mb-3">
+            Compétences transverses non rattachées à une mission précise (les autres sont intégrées directement dans les puces). Max 12, priorisées selon l'offre.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {session.skills_section.map((s, i) => {
+              const src = SOURCE_LABELS[s.source] || SOURCE_LABELS.cv;
+              return <span key={i} className={`text-sm px-2 py-1 rounded border ${src.cls}`}>{s.skill} · {src.label}</span>;
+            })}
+          </div>
         </div>
       )}
 
