@@ -67,6 +67,8 @@ class StructuredCV(BaseModel):
     education: List[Education] = []
     skills: List[str] = []
     languages: List[Language] = []
+    permis_b: bool = False
+    vehicule: bool = False
 
 
 class CVUpdateInput(BaseModel):

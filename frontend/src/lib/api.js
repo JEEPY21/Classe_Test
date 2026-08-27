@@ -93,6 +93,10 @@ export const api = {
   listHistory: () => client.get("/history"),
   deleteHistory: (id) => client.delete(`/history/${id}`),
   downloadHistoryDoc: (id, data) => client.post(`/history/${id}/download`, data, { responseType: "blob" }),
+
+  dailyOffers: () => client.get("/offers/daily"),
+  refreshOffers: () => client.post("/offers/refresh"),
+  validateOffer: (offerId) => client.post(`/offers/${offerId}/validate`),
 };
 
 export default client;

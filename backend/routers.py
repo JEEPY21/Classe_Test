@@ -13,6 +13,7 @@ from models import (CVUpdateInput, JobOfferInput, GenerateInput,
 import llm_service
 import export_service
 import ats_service
+import france_travail as ft
 from extraction import extract_text
 
 router = APIRouter()
@@ -134,8 +135,12 @@ async def update_cv(cv_id: str, body: CVUpdateInput, user: dict = Depends(get_cu
 async def delete_cv(cv_id: str, user: dict = Depends(get_current_user)):
     """RGPD — suppression du CV source et des données associées à la demande de l'utilisateur."""
     await _get_cv(cv_id, user)
+    session_ids = [s["id"] async for s in db.sessions.find({"cv_id": cv_id, "user_id": user["id"]}, {"id": 1})]
     await db.cvs.delete_one({"id": cv_id, "user_id": user["id"]})
     await db.sessions.delete_many({"cv_id": cv_id, "user_id": user["id"]})
+    await db.history.delete_many({"cv_id": cv_id, "user_id": user["id"]})
+    if session_ids:
+        await db.offer_generations.delete_many({"user_id": user["id"], "session_id": {"$in": session_ids}})
     return {"deleted": True}
 
 
@@ -177,6 +182,8 @@ async def _run_generation(sid: str, cv_structured: dict, job_analysis: dict, tar
             "score": cv_result.get("score", {}),
             "experience_rewrites": cv_result.get("experience_rewrites", []),
             "skills_section": cv_result.get("skills_section", []),
+            "adapted_title": cv_result.get("adapted_title", ""),
+            "adapted_summary": cv_result.get("adapted_summary", ""),
             "cover_letter": {"paragraphs": letter.get("paragraphs", [])},
             "status": "ready",
             "error": None,
@@ -459,3 +466,88 @@ router.include_router(ats_router)
 router.include_router(export_router)
 router.include_router(app_router)
 router.include_router(history_router)
+
+
+# ---------------- Offres du jour (France Travail — NO AI for fetching) ----------------
+offers_router = APIRouter(prefix="/offers", tags=["offers"])
+
+
+async def refresh_daily_offers():
+    """Scheduled each morning: fetch 10 CDI marketing offers in France. No AI involved."""
+    try:
+        offers = ft.fetch_offers(mots_cles="marketing", type_contrat="CDI", count=10)
+    except Exception as e:
+        await db.system_status.update_one({"key": "daily_offers"},
+                                          {"$set": {"error": str(e)[:200], "updated_at": now_iso()}}, upsert=True)
+        return 0
+    docs = [{**o, "fetched_at": now_iso()} for o in offers]
+    if docs:
+        await db.daily_offers.delete_many({})
+        await db.daily_offers.insert_many(docs)
+    await db.system_status.update_one({"key": "daily_offers"},
+                                      {"$set": {"error": None, "count": len(docs), "updated_at": now_iso()}}, upsert=True)
+    return len(docs)
+
+
+@offers_router.get("/daily")
+async def daily_offers(user: dict = Depends(get_current_user)):
+    offers = await db.daily_offers.find({}, {"_id": 0}).to_list(50)
+    gens = await db.offer_generations.find({"user_id": user["id"]}, {"_id": 0}).to_list(300)
+    gmap = {g["offer_id"]: g["session_id"] for g in gens}
+    for o in offers:
+        sid = gmap.get(o["id"])
+        if sid:
+            s = await db.sessions.find_one({"id": sid}, {"_id": 0, "status": 1})
+            o["generation"] = {"session_id": sid, "status": (s or {}).get("status", "pending")}
+        else:
+            o["generation"] = None
+    status = await db.system_status.find_one({"key": "daily_offers"}, {"_id": 0})
+    return {"offers": offers, "status": status}
+
+
+@offers_router.post("/refresh")
+async def manual_refresh(user: dict = Depends(get_current_user)):
+    count = await refresh_daily_offers()
+    status = await db.system_status.find_one({"key": "daily_offers"}, {"_id": 0})
+    return {"count": count, "status": status}
+
+
+@offers_router.post("/{offer_id}/validate")
+async def validate_offer(offer_id: str, user: dict = Depends(get_current_user)):
+    """One-click: generate CV + letter for this offer using the user's most recent source CV."""
+    offer = await db.daily_offers.find_one({"id": offer_id})
+    if not offer:
+        raise HTTPException(status_code=404, detail="Offre introuvable")
+    cv = await db.cvs.find_one({"user_id": user["id"]}, sort=[("created_at", -1)])
+    if not cv:
+        raise HTTPException(status_code=400, detail="Aucun CV source enregistré. Importez d'abord un CV.")
+    # Analyse the offer text (this generation step legitimately uses AI).
+    try:
+        analysis = await llm_service.analyze_job(offer.get("description") or offer.get("intitule", ""))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Analyse de l'offre échouée : {str(e)[:120]}")
+    analysis["job_title"] = analysis.get("job_title") or offer.get("intitule", "")
+    analysis["company"] = analysis.get("company") or offer.get("entreprise", "")
+    job_doc = {"id": new_id(), "user_id": user["id"], "raw_text": offer.get("description", ""),
+               "analysis": analysis, "created_at": now_iso()}
+    await db.jobs.insert_one(job_doc)
+    sid = new_id()
+    session_doc = {"id": sid, "user_id": user["id"], "cv_id": cv["id"], "job_id": job_doc["id"],
+                   "target_language": analysis.get("language", "fr"),
+                   "score": {}, "experience_rewrites": [], "skills_section": [],
+                   "adapted_title": "", "adapted_summary": "",
+                   "cover_letter": {"paragraphs": []}, "confirmed_skills": [],
+                   "decisions": {"rewrites": [], "cover_letter_accepted": True},
+                   "status": "pending", "error": None,
+                   "created_at": now_iso(), "updated_at": now_iso()}
+    await db.sessions.insert_one(session_doc)
+    await db.offer_generations.update_one(
+        {"user_id": user["id"], "offer_id": offer_id},
+        {"$set": {"user_id": user["id"], "offer_id": offer_id, "session_id": sid, "created_at": now_iso()}},
+        upsert=True)
+    asyncio.create_task(_run_generation(sid, cv["structured"], analysis,
+                                        analysis.get("language", "fr"), []))
+    return {"session_id": sid, "status": "pending"}
+
+
+router.include_router(offers_router)

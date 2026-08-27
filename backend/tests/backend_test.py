@@ -419,6 +419,88 @@ def test_export_letter_docx(session, session_id):
     assert len(r.content) > 500
 
 
+# ---------- ÉVOLUTION 3: adapted title & summary in generation ----------
+def test_generation_has_adapted_title_and_summary(session, session_id):
+    r = session.get(f"{BASE_URL}/api/generate/{session_id}", timeout=15)
+    assert r.status_code == 200
+    doc = r.json()
+    assert doc.get("adapted_title"), f"adapted_title missing: {doc.get('adapted_title')!r}"
+    assert doc.get("adapted_summary"), f"adapted_summary missing: {doc.get('adapted_summary')!r}"
+    assert len(doc["adapted_summary"]) > 20
+
+
+# ---------- ÉVOLUTION 1: Daily offers endpoint (France Travail) ----------
+def test_daily_offers_endpoint(session):
+    r = session.get(f"{BASE_URL}/api/offers/daily", timeout=15)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "offers" in body and "status" in body
+    assert isinstance(body["offers"], list)
+    # TEST_OFFER_1 injected via pymongo
+    ids = [o.get("id") for o in body["offers"]]
+    assert "TEST_OFFER_1" in ids, f"TEST_OFFER_1 not in offers: {ids}"
+
+
+# ---------- ÉVOLUTION 1: Validate offer -> generation flow ----------
+def test_validate_offer_flow(session, cv_id):
+    # Ensure cv exists (fixture cv_id ensures upload). Call validate.
+    r = session.post(f"{BASE_URL}/api/offers/TEST_OFFER_1/validate", timeout=30)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    sid = body.get("session_id")
+    assert sid and body.get("status") == "pending"
+    final = _poll_ready(session, sid, timeout=180)
+    assert final and final["status"] == "ready", f"Offer generation did not finish: {final}"
+    assert final.get("adapted_title"), "adapted_title missing on offer generation"
+    assert final.get("adapted_summary"), "adapted_summary missing on offer generation"
+    # Adapted title should reference marketing vocabulary from the injected offer
+    at = final["adapted_title"].lower()
+    assert "marketing" in at or "projet" in at or "chef" in at, f"adapted_title not adapted: {at}"
+    # Test all 4 downloads
+    for doc_type, fmt, magic in [("cv", "pdf", b"%PDF"), ("cv", "docx", b"PK"),
+                                  ("cover_letter", "pdf", b"%PDF"), ("cover_letter", "docx", b"PK")]:
+        rd = session.post(f"{BASE_URL}/api/export/download",
+                          json={"generation_id": sid, "template_id": "classic",
+                                "doc_type": doc_type, "format": fmt}, timeout=60)
+        assert rd.status_code == 200, f"{doc_type}/{fmt}: {rd.text}"
+        assert rd.content[:len(magic)] == magic
+        assert len(rd.content) > 500
+
+
+# ---------- ÉVOLUTION 4: Mobilité (Permis B / Véhiculé) in CV export ----------
+def test_mobility_permis_b_vehicule_in_export(session, cv_id):
+    # Fetch, mutate, put whole structured
+    r0 = session.get(f"{BASE_URL}/api/cv/{cv_id}", timeout=15)
+    assert r0.status_code == 200, r0.text
+    cv = r0.json()
+    structured = cv.get("structured", {})
+    structured["permis_b"] = True
+    structured["vehicule"] = True
+    r = session.put(f"{BASE_URL}/api/cv/{cv_id}", json={"structured": structured}, timeout=20)
+    assert r.status_code == 200, r.text
+
+    # Analyze job + generate
+    rj = session.post(f"{BASE_URL}/api/job/analyze", json={"raw_text": SAMPLE_JOB}, timeout=90)
+    jid = rj.json()["id"]
+    rg = session.post(f"{BASE_URL}/api/generate", json={"cv_id": cv_id, "job_id": jid}, timeout=15)
+    sid = rg.json()["id"]
+    final = _poll_ready(session, sid, timeout=180)
+    assert final and final["status"] == "ready"
+
+    # Export CV PDF and DOCX, verify "Mobilité" (or Permis B) present
+    rp = session.post(f"{BASE_URL}/api/export/download",
+                      json={"generation_id": sid, "template_id": "classic",
+                            "doc_type": "cv", "format": "docx"}, timeout=60)
+    assert rp.status_code == 200
+    # Unzip docx and check text content
+    import zipfile, io as _io
+    z = zipfile.ZipFile(_io.BytesIO(rp.content))
+    doc_xml = z.read("word/document.xml").decode("utf-8", errors="ignore")
+    assert "Permis B" in doc_xml, "Permis B missing in DOCX CV"
+    assert "Véhiculé" in doc_xml or "Vehicule" in doc_xml, "Véhiculé missing in DOCX CV"
+    assert "Mobilité" in doc_xml or "Mobilit" in doc_xml, "Mobilité section missing in DOCX CV"
+
+
 # ---------- RGPD delete ----------
 def test_delete_cv(session, cv_id):
     r = session.delete(f"{BASE_URL}/api/cv/{cv_id}", timeout=15)

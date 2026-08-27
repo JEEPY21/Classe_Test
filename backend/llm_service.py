@@ -114,6 +114,7 @@ async def generate_cv(cv: dict, job: dict, target_language: str, confirmed_skill
     )
     schema = (
         '{'
+        '"adapted_title":"","adapted_summary":"",'
         '"score":{"overall":0,"hard_skills":0,"soft_skills":0,"education":0,"keywords":0,'
         '"explanation":"","matched_hard_skills":[],"missing_hard_skills":[],'
         '"matched_soft_skills":[],"missing_soft_skills":[],"missing_keywords":[]},'
@@ -128,6 +129,11 @@ async def generate_cv(cv: dict, job: dict, target_language: str, confirmed_skill
         f"Compétences confirmées manuellement par l'utilisateur (à traiter comme réelles, source "
         f"'confirmation_utilisateur'):\n{json.dumps(confirmed_skills, ensure_ascii=False)}\n\n"
         "Produis:\n"
+        "- adapted_title: le titre du poste à afficher EN HAUT du CV, adapté précisément au vocabulaire "
+        "et à l'intitulé de l'offre ciblée (jamais générique), tout en restant fidèle au profil réel.\n"
+        "- adapted_summary: une accroche / résumé de profil (2-3 phrases) alignée sur les attentes et le "
+        "vocabulaire de l'offre, fondée uniquement sur le vécu réel du candidat (jamais générique, "
+        "aucune invention).\n"
         "- score: chaque sous-score de 0 à 100 (hard_skills, soft_skills, education, keywords) + un "
         "overall pondéré, une explication claire, et les listes de compétences correspondantes/manquantes.\n"
         "- experience_rewrites: pour CHAQUE expérience du CV (garde le même experience_id), une "

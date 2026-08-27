@@ -1,0 +1,32 @@
+{
+  "summary": "Validated 3 new features: (1) Offres du jour dashboard section fed by France Travail cron (empty-state + injected TEST_OFFER_1 works), (2) Claude adapted_title + adapted_summary on every generation, (3) Mobilité section (Permis B / Véhiculé) rendered in the exported CV. Backend pytest 29/29 pass (4 new tests added: test_generation_has_adapted_title_and_summary, test_daily_offers_endpoint, test_validate_offer_flow, test_mobility_permis_b_vehicule_in_export). Frontend Playwright: after injecting TEST_OFFER_1 in daily_offers, dashboard renders offer-card-TEST_OFFER_1 with title/entreprise/lieu/date/description + Valider button; click triggers generation, polling turns card into 'Prêt' + 4 downloads (offer-cv-pdf/docx, offer-letter-pdf/docx) within ~18s, PDF download returns 2755-byte %PDF file. France Travail API remains 'invalid_client' as expected (status.error), and the empty-state message shown when no offer is present is clear.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "DELETE /api/cv/{cv_id}", "issue": "Also deletes cv sessions, but leaves stale offer_generations rows pointing to now-missing sessions -> UI can show 'Génération…' forever for a stale link. Consider cascading delete on offer_generations when cv/session is removed."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/backend/tests/backend_test.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "(Optional, minor) Cascade-clean offer_generations when the underlying CV/session is deleted, to avoid stuck 'Génération…' UI state."
+  ],
+  "critical_code_review_comments": [
+    "offers_router.validate_offer correctly uses the user's most recent CV (sort created_at desc), analyses the offer via Claude, launches _run_generation async and upserts offer_generations — verified end-to-end via UI (Prêt + 4 downloads).",
+    "France Travail failure is handled gracefully (system_status.error is stored, empty offers returned, UI shows a helpful message) — confirmed keys are rejected upstream, not a code bug.",
+    "llm_service.generate_cv now returns adapted_title + adapted_summary; export_service.build_final_cv applies them (identity.title + summary) and renders Mobilité section for Permis B / Véhiculé in both HTML(PDF) and DOCX paths — DOCX assertions passed (word/document.xml contains 'Permis B', 'Véhiculé', 'Mobilité').",
+    "APScheduler cron 7h Europe/Paris + initial fill in server.py wired properly; refresh_daily_offers logs status even when FT rejects.",
+    "Minor: offer_generations lacks TTL and cascading delete (see minor issue above)."
+  ],
+  "updated_files": ["/app/backend/tests/backend_test.py"],
+  "success_rate": {"backend": "100% (29/29)", "frontend": "100% (Offres du jour + Valider + 4 téléchargements)"},
+  "test_credentials": "admin@matchipy.com / Matchipy2026!",
+  "seed_data_creation": "Injected then removed one MongoDB doc in 'daily_offers' with id=TEST_OFFER_1; offer_generations cleared after tests.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "To retest the offers Valider flow without waiting for the 7h cron, inject a doc into MongoDB daily_offers collection with the shape {id, intitule, entreprise, lieu, date_publication, description, fetched_at}. Testids: daily-offers-section, offer-card-<id>, validate-offer-<id>, offer-cv-pdf-<id>, offer-cv-docx-<id>, offer-letter-pdf-<id>, offer-letter-docx-<id>, permis-b-toggle, vehicule-toggle. France Travail API returns invalid_client (upstream — do not treat as a bug). DELETE /api/cv also removes matching sessions, so long-running offer_generations may stall; clear db.offer_generations between iterations."
+}

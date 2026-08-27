@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Navbar from "@/components/Navbar";
+import DailyOffers from "@/components/DailyOffers";
 import { api, formatApiError } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -42,6 +43,8 @@ export default function Dashboard() {
             <Plus className="w-4 h-4 mr-2" aria-hidden="true" /> Nouvelle optimisation
           </Button>
         </div>
+
+        <DailyOffers />
 
         {cvs === null ? (
           <div className="flex justify-center py-24"><Loader2 className="w-6 h-6 animate-spin text-brand" /></div>

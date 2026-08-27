@@ -37,12 +37,15 @@ def build_final_cv(cv: dict, session: dict) -> dict:
                     for d in decisions.get("rewrites", [])}
 
     final = {
-        "identity": cv.get("identity", {}),
-        "summary": cv.get("summary", ""),
+        "identity": {**cv.get("identity", {}),
+                     "title": session.get("adapted_title") or cv.get("identity", {}).get("title", "")},
+        "summary": session.get("adapted_summary") or cv.get("summary", ""),
         "education": cv.get("education", []),
         "languages": cv.get("languages", []),
         "experiences": [],
         "skills": [],
+        "permis_b": cv.get("permis_b", False),
+        "vehicule": cv.get("vehicule", False),
     }
     for exp in cv.get("experiences", []):
         eid = exp.get("id")
@@ -165,6 +168,20 @@ def render_html(cv: dict, template_id: str, language: str = "fr") -> str:
                  for l in cv["languages"]]
         parts.append(f'<div>{" · ".join(langs)}</div>')
 
+    if cv.get("permis_b") or cv.get("vehicule"):
+        mob_labels = {"fr": "Mobilité", "en": "Mobility", "es": "Movilidad", "de": "Mobilität"}
+        items = {"fr": {"p": "Permis B", "v": "Véhiculé"}, "en": {"p": "Driving licence (B)", "v": "Own vehicle"},
+                 "es": {"p": "Carnet de conducir (B)", "v": "Vehículo propio"},
+                 "de": {"p": "Führerschein (B)", "v": "Eigenes Fahrzeug"}}
+        L = items.get(language, items["fr"])
+        vals = []
+        if cv.get("permis_b"):
+            vals.append(L["p"])
+        if cv.get("vehicule"):
+            vals.append(L["v"])
+        parts.append(section_title(mob_labels.get(language, "Mobilité")))
+        parts.append(f'<div>{" · ".join(vals)}</div>')
+
     parts.append("</body></html>")
     return "".join(parts)
 
@@ -242,6 +259,20 @@ def build_docx(cv: dict, language: str = "fr") -> bytes:
         langs = [f'{l.get("language","")} ({l.get("level","")})' if l.get("level") else l.get("language", "")
                  for l in cv["languages"]]
         doc.add_paragraph(" · ".join(langs))
+
+    if cv.get("permis_b") or cv.get("vehicule"):
+        mob_labels = {"fr": "Mobilité", "en": "Mobility", "es": "Movilidad", "de": "Mobilität"}
+        items = {"fr": {"p": "Permis B", "v": "Véhiculé"}, "en": {"p": "Driving licence (B)", "v": "Own vehicle"},
+                 "es": {"p": "Carnet de conducir (B)", "v": "Vehículo propio"},
+                 "de": {"p": "Führerschein (B)", "v": "Eigenes Fahrzeug"}}
+        L = items.get(language, items["fr"])
+        vals = []
+        if cv.get("permis_b"):
+            vals.append(L["p"])
+        if cv.get("vehicule"):
+            vals.append(L["v"])
+        heading(mob_labels.get(language, "Mobilité"))
+        doc.add_paragraph(" · ".join(vals))
 
     buf = io.BytesIO()
     doc.save(buf)

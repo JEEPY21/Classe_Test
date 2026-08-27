@@ -5,6 +5,7 @@ aiosignal==1.4.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.14.2
+APScheduler==3.11.3
 arabic-reshaper==3.0.1
 asn1crypto==1.5.1
 ast_serialize==0.8.0

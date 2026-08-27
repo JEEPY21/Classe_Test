@@ -5,6 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { UploadCloud, Loader2, Plus, X, ArrowRight, ShieldCheck, FileText } from "lucide-react";
 import { toast } from "sonner";
 
@@ -195,6 +196,19 @@ export default function Step1CV({ cv, setCv, onNext }) {
                 </div>
               ))}
               {s.languages.length === 0 && <Empty text="Aucune langue extraite." />}
+            </div>
+          </Card>
+
+          <Card title="Mobilité">
+            <div className="flex flex-wrap gap-6">
+              <label className="flex items-center gap-3 cursor-pointer" data-testid="permis-b-toggle">
+                <Checkbox checked={!!s.permis_b} onCheckedChange={(v) => update({ permis_b: !!v })} />
+                <span className="text-sm">Permis B</span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer" data-testid="vehicule-toggle">
+                <Checkbox checked={!!s.vehicule} onCheckedChange={(v) => update({ vehicule: !!v })} />
+                <span className="text-sm">Véhiculé(e)</span>
+              </label>
             </div>
           </Card>
 

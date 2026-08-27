@@ -41,7 +41,10 @@ multi-utilisateurs-ready pour commercialisation ultérieure.
 - Extraction CV : nettoyage du texte avant LLM (espaces multiples, sauts de ligne, en-têtes/pieds de page répétés).
 - Contrôle ATS (Bloc 4) : **Affinda opérationnel** (région EU `api.eu1.affinda.com`, collection « resume » auto-provisionnée, document supprimé après parsing pour RGPD) — **aucun appel LLM**. Repli lisibilité interne si Affinda indisponible.
 - Suivi manuel des candidatures (Bloc 3bis) : tableau de bord `/applications` — statuts (envoyée/relance/entretien/refusée/acceptée), filtre, édition, suppression, CV + lettre attachés (snapshot) téléchargeables en PDF/DOCX.
-- Génération asynchrone + polling (plus de 502), refresh token auto (TTL 8h).
+- Offres du jour (France Travail) : tâche planifiée APScheduler chaque matin 7h (Europe/Paris) → 10 offres CDI marketing en France, sans IA. Section dashboard avec bouton « Valider » → génération auto (dernier CV source) + téléchargements PDF/DOCX sur la carte, sauvegarde en historique. ⚠️ Clé FT actuellement rejetée (invalid_client) → état vide géré proprement ; opérationnel dès identifiants valides (app abonnée à « Offres d'emploi v2 »).
+- Titre & accroche adaptés : à chaque génération, Claude produit adapted_title + adapted_summary alignés sur l'offre (jamais génériques).
+- CV : section Mobilité (Permis B / Véhiculé) éditable et rendue en PDF/DOCX.
+- Génération asynchrone + polling, refresh token auto (TTL 8h), Historique auto-sauvegardé, Suivi de candidatures manuel.
 
 ## Backlog priorisé
 - P1: BLOC 3bis — suivi manuel des candidatures (dashboard statuts, CV/lettre attachés).

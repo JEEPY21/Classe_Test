@@ -3,9 +3,11 @@ from pathlib import Path
 load_dotenv(Path(__file__).parent / ".env")
 
 import os
+import asyncio
 import logging
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from db import db, client
 import auth
@@ -51,6 +53,15 @@ async def startup():
     await db.history.create_index("user_id")
     await db.history.create_index("session_id")
     await auth.seed_admin()
+
+    # Daily job: fetch France Travail offers every morning at 07:00 (Europe/Paris). No AI.
+    scheduler = AsyncIOScheduler(timezone="Europe/Paris")
+    scheduler.add_job(routers.refresh_daily_offers, "cron", hour=7, minute=0,
+                      id="daily_offers", replace_existing=True)
+    scheduler.start()
+    app.state.scheduler = scheduler
+    if await db.daily_offers.count_documents({}) == 0:
+        asyncio.create_task(routers.refresh_daily_offers())
     logger.info("Matchipy startup complete")
 
 
