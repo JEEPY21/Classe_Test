@@ -9,6 +9,7 @@ import Register from "@/pages/Register";
 import Dashboard from "@/pages/Dashboard";
 import Workflow from "@/pages/Workflow";
 import Applications from "@/pages/Applications";
+import HistoryPage from "@/pages/History";
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
             <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
             <Route path="/workflow" element={<ProtectedRoute><Workflow /></ProtectedRoute>} />
             <Route path="/applications" element={<ProtectedRoute><Applications /></ProtectedRoute>} />
+            <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
           </Routes>
           <Toaster richColors position="top-right" />
         </AuthProvider>

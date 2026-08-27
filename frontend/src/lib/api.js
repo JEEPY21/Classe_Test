@@ -89,6 +89,10 @@ export const api = {
   updateApplication: (id, data) => client.put(`/applications/${id}`, data),
   deleteApplication: (id) => client.delete(`/applications/${id}`),
   downloadApplicationDoc: (id, data) => client.post(`/applications/${id}/download`, data, { responseType: "blob" }),
+
+  listHistory: () => client.get("/history"),
+  deleteHistory: (id) => client.delete(`/history/${id}`),
+  downloadHistoryDoc: (id, data) => client.post(`/history/${id}/download`, data, { responseType: "blob" }),
 };
 
 export default client;

@@ -45,6 +45,43 @@ def _strip(doc: dict) -> dict:
     return doc
 
 
+async def _save_history(session_doc: dict):
+    """Auto-save (upsert) the generation result into the history collection so the user can
+    retrieve and download the reformulated CV + cover letter later WITHOUT re-running the AI.
+    Stores a self-contained snapshot (final CV + letter), the score, and the job title/company."""
+    try:
+        cv = await db.cvs.find_one({"id": session_doc["cv_id"], "user_id": session_doc["user_id"]})
+        job = await db.jobs.find_one({"id": session_doc.get("job_id"), "user_id": session_doc["user_id"]})
+        if not cv:
+            return
+        analysis = (job or {}).get("analysis", {}) or {}
+        final_cv = export_service.build_final_cv(cv["structured"], session_doc)
+        history_doc = {
+            "user_id": session_doc["user_id"],
+            "session_id": session_doc["id"],
+            "cv_id": session_doc["cv_id"],
+            "job_id": session_doc.get("job_id"),
+            "poste": analysis.get("job_title", ""),
+            "entreprise": analysis.get("company", ""),
+            "target_language": session_doc.get("target_language", "fr"),
+            "template_id": "classic",
+            "score": session_doc.get("score", {}),
+            "snapshot": {"final_cv": final_cv,
+                         "cover_letter": session_doc.get("cover_letter", {"paragraphs": []})},
+            "updated_at": now_iso(),
+        }
+        existing = await db.history.find_one({"session_id": session_doc["id"], "user_id": session_doc["user_id"]})
+        if existing:
+            await db.history.update_one({"id": existing["id"]}, {"$set": history_doc})
+        else:
+            history_doc["id"] = new_id()
+            history_doc["created_at"] = now_iso()
+            await db.history.insert_one(history_doc)
+    except Exception:
+        # history save must never break the main flow
+        pass
+
+
 # ---------------- BLOC 1: CV ----------------
 cv_router = APIRouter(prefix="/cv", tags=["cv"])
 
@@ -145,6 +182,10 @@ async def _run_generation(sid: str, cv_structured: dict, job_analysis: dict, tar
             "error": None,
             "updated_at": now_iso(),
         }})
+        # Auto-save the generation result to history (no user action required).
+        fresh = await db.sessions.find_one({"id": sid})
+        if fresh:
+            await _save_history(_strip(dict(fresh)))
     except asyncio.TimeoutError:
         await db.sessions.update_one({"id": sid}, {"$set": {
             "status": "error",
@@ -208,7 +249,10 @@ async def save_decisions(sid: str, body: DecisionsInput, user: dict = Depends(ge
         decisions["cover_letter_accepted"] = body.cover_letter_accepted
     await db.sessions.update_one({"id": sid, "user_id": user["id"]},
                                  {"$set": {"decisions": decisions, "updated_at": now_iso()}})
-    return _strip(await _get_session(sid, user))
+    updated = await _get_session(sid, user)
+    # Keep the auto-saved history in sync with the user's accept/reject decisions.
+    await _save_history(dict(updated))
+    return _strip(updated)
 
 
 # ---------------- BLOC 4: ATS quality control ----------------
@@ -372,9 +416,46 @@ async def download_application_doc(app_id: str, payload: dict, user: dict = Depe
                              headers={"Content-Disposition": f'attachment; filename="{filename}"'})
 
 
+# ---------------- Generation history (auto-saved) ----------------
+history_router = APIRouter(prefix="/history", tags=["history"])
+
+
+@history_router.get("")
+async def list_history(user: dict = Depends(get_current_user)):
+    docs = await db.history.find({"user_id": user["id"]}, {"_id": 0, "snapshot": 0}).sort("created_at", -1).to_list(500)
+    return docs
+
+
+@history_router.delete("/{hid}")
+async def delete_history(hid: str, user: dict = Depends(get_current_user)):
+    res = await db.history.delete_one({"id": hid, "user_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Entrée d'historique introuvable")
+    return {"deleted": True}
+
+
+@history_router.post("/{hid}/download")
+async def download_history_doc(hid: str, payload: dict, user: dict = Depends(get_current_user)):
+    doc = await db.history.find_one({"id": hid, "user_id": user["id"]})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Entrée d'historique introuvable")
+    doc_type = payload.get("doc_type", "cv")
+    fmt = payload.get("format", "pdf")
+    snap = doc.get("snapshot", {})
+    final_cv = snap.get("final_cv", {})
+    cover = (snap.get("cover_letter") or {}).get("paragraphs", [])
+    if doc_type == "cover_letter" and not cover:
+        raise HTTPException(status_code=400, detail="Aucune lettre attachée à cette génération.")
+    content, media, filename = _render_doc(final_cv, cover, doc.get("template_id", "classic"),
+                                           doc.get("target_language", "fr"), doc_type, fmt)
+    return StreamingResponse(io.BytesIO(content), media_type=media,
+                             headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
 router.include_router(cv_router)
 router.include_router(job_router)
 router.include_router(gen_router)
 router.include_router(ats_router)
 router.include_router(export_router)
 router.include_router(app_router)
+router.include_router(history_router)
