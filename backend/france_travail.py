@@ -40,18 +40,55 @@ def _project(offer: dict) -> dict:
     }
 
 
-def fetch_offers(mots_cles: str = "marketing", type_contrat: str = "CDI", count: int = 10) -> list:
-    """Return up to `count` offers. Raises on network/auth errors."""
-    params = {
-        "typeContrat": type_contrat,
-        "motsCles": mots_cles,
-        "paysContinent": "01",
-        "range": f"0-{max(count - 1, 0)}",
-    }
-    resp = requests.get(SEARCH_URL, params=params,
-                        headers={"Authorization": f"Bearer {_get_token()}"}, timeout=25)
-    if resp.status_code == 204:
-        return []
-    resp.raise_for_status()
-    results = (resp.json() or {}).get("resultats", [])
-    return [_project(o) for o in results if o.get("id")][:count]
+# France Travail 'publieeDepuis' only accepts these values (in days).
+_ALLOWED_SINCE = [1, 3, 7, 14, 31]
+
+
+def _publiee_depuis(max_days: int) -> int:
+    for v in _ALLOWED_SINCE:
+        if v >= max_days:
+            return v
+    return 31
+
+
+def _within_days(date_str: str, max_days: int) -> bool:
+    if not date_str:
+        return True
+    try:
+        d = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - d) <= timedelta(days=max_days)
+    except Exception:
+        return True
+
+
+def fetch_offers(keywords=None, contrats=None, max_days: int = 4, count: int = 10) -> list:
+    """Fetch offers for one or more keywords / contract types, published within `max_days`.
+    Merges + dedups results, sorts by publication date (newest first), caps at `count`.
+    Raises on network/auth errors."""
+    keywords = keywords or ["marketing", "analyste marketing"]
+    contrats = contrats or ["CDI"]
+    since = _publiee_depuis(max_days)
+    token = _get_token()
+    headers = {"Authorization": f"Bearer {token}"}
+    collected = {}
+    for kw in keywords:
+        for ct in contrats:
+            params = {
+                "typeContrat": ct,
+                "motsCles": kw,
+                "paysContinent": "01",
+                "publieeDepuis": since,
+                "range": "0-49",
+            }
+            resp = requests.get(SEARCH_URL, params=params, headers=headers, timeout=25)
+            if resp.status_code == 204:
+                continue
+            resp.raise_for_status()
+            for o in (resp.json() or {}).get("resultats", []):
+                if o.get("id") and o["id"] not in collected:
+                    collected[o["id"]] = _project(o)
+    offers = [o for o in collected.values() if _within_days(o["date_publication"], max_days)]
+    offers.sort(key=lambda x: x.get("date_publication") or "", reverse=True)
+    return offers[:count]
